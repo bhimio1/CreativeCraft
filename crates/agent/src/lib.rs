@@ -1,14 +1,18 @@
-//! The AI chat (L2).
+//! The AI assistant (L2).
 //!
-//! CreativeCraft does not ship its own model client. The chat is a front end for an **agent CLI the
-//! user already has** — Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or any command they
-//! configure. Each chat turn runs that CLI once, headless, in the projects folder, with exactly one
-//! MCP server configured: the hub itself (`creativecraft-cli mcp`), which fronts every installed
-//! app's own MCP server. The CLI's streamed output is parsed into [`ChatEvent`]s for the window.
+//! CreativeCraft does not ship its own model client. The assistant is an **agent CLI the user
+//! already has** — Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or any command they
+//! configure — run in the projects folder with exactly one MCP server configured: the hub itself
+//! (`creativecraft-cli mcp`), which fronts every installed app's own MCP server.
+//!
+//! Two ways to run it:
+//! - [`interactive_launch`]: the CLI's own interactive UI, which the window hosts in a terminal.
+//! - [`start_turn`]: one headless turn whose streamed output is parsed into [`ChatEvent`]s
+//!   (`creativecraft-cli chat`).
 //!
 //! ```text
-//! chat window ─▶ backend CLI (one run per turn, resumes its own session)
-//!                   └─ MCP ─▶ creativecraft-cli mcp ─▶ photocraft-cli mcp, vectorcraft-cli mcp, …
+//! terminal / CLI chat ─▶ backend CLI
+//!                          └─ MCP ─▶ creativecraft-cli mcp ─▶ photocraft-cli mcp, vectorcraft-cli mcp, …
 //! ```
 //!
 //! Why external backends: the user keeps their own model, account, billing and agent settings;
@@ -47,15 +51,15 @@ pub enum AgentError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Json(#[from] serde_json::Error),
-    #[error("{name} was not found. Install it ({homepage}) or set its path in Settings → AI chat.")]
+    #[error("{name} was not found. Install it ({homepage}) or set its path in Settings → Assistant.")]
     NotInstalled { name: &'static str, homepage: &'static str },
     #[error("{0}")]
     Setup(String),
-    #[error("a custom backend needs a command line; set one in Settings → AI chat")]
+    #[error("a custom backend needs a command line; set one in Settings → Assistant")]
     NoCustomCommand,
 }
 
-/// How the chat runs, saved in the hub's settings.
+/// How the assistant runs, saved in the hub's settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentSettings {
@@ -110,6 +114,32 @@ pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     /// The backend's own session/conversation id from the previous turn, if any.
     pub session: Option<&'a str>,
+}
+
+/// Everything an interactive session needs.
+pub struct SessionRequest<'a> {
+    pub settings: &'a AgentSettings,
+    /// Working directory for the agent: the projects folder.
+    pub workspace: &'a Path,
+    /// Where config files go (`<projects>/.creativecraft/agent`, never synced).
+    pub state_dir: &'a Path,
+    pub hub: &'a McpServer,
+}
+
+/// A program to run in a terminal: what, with which arguments and extra environment, and where.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchSpec {
+    pub program: String,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub cwd: PathBuf,
+}
+
+/// How to start the chosen CLI's own interactive UI, wired to the hub (config files are written
+/// here). The caller runs it in a terminal.
+pub fn interactive_launch(req: &SessionRequest) -> Result<LaunchSpec, AgentError> {
+    std::fs::create_dir_all(req.state_dir)?;
+    backend::interactive(req)
 }
 
 /// Start one turn. Events stream from the returned [`Running`].

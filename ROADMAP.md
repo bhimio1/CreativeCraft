@@ -2,7 +2,7 @@
 
 ## M0: scaffold (this commit)
 - [x] Workspace, layering, lints mirroring the Craft apps
-- [x] Catalog (7 Craft apps + 8 external open-source apps) with user overlay
+- [x] Catalog (12 Craft apps + 8 external open-source apps) with user overlay
 - [x] Installer: GitHub releases, asset matching, SHA-256 verify, unpack, side-by-side update, launch
 - [x] External app detection (PATH, macOS bundles, Program Files)
 - [x] Three-way sync planner (tested) + executor; Google Drive and folder backends
@@ -20,9 +20,9 @@
 ## M1: make it solid
 - [ ] Record real transcripts from OpenCode, Hermes and Antigravity; tighten their parsers with fixtures
 - [ ] Multi-turn without a process per message where supported (Claude Code / Antigravity `--input-format stream-json`)
-- [ ] Attach files and images to a chat message; show images the agent produces inline
-- [ ] Chat history list (several conversations), rename/delete
-- [ ] Approve tool calls from the chat UI instead of all-or-nothing (Claude Code `--permission-prompt-tool`)
+- [x] Assistant page as a terminal running the agent CLI's own interactive UI (PTY + `vt100`)
+- [ ] Terminal: mouse reporting for full-screen TUIs, double-click word selection, a font-size setting
+- [ ] Several assistant sessions side by side (tabs)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed
 - [ ] Token storage in the OS keychain (`keyring` crate) instead of a 0600 file

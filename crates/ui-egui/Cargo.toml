@@ -18,3 +18,5 @@ serde_json = { workspace = true }
 log = { workspace = true }
 open = { workspace = true }
 image = { workspace = true }
+portable-pty = { workspace = true }
+vt100 = { workspace = true }

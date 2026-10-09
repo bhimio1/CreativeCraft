@@ -8,6 +8,7 @@
 //! creativecraft-cli sync                   one cloud sync pass
 //! creativecraft-cli sync --preview         what a sync would do, changing nothing
 //! creativecraft-cli login | logout         Google Drive sign-in
+//! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
 //! creativecraft-cli chat --new              start a fresh chat
 //! creativecraft-cli agent-setup             one-time setup for the chat's agent CLI (Hermes)
@@ -88,6 +89,12 @@ fn run(args: &[String]) -> Result<(), EngineError> {
             println!("Started a new chat");
         }
         "chat" => chat(&s, &rest.join(" "))?,
+        "bug" | "report-bug" => {
+            // print the address too, for terminals without a browser
+            let id = rest.first().cloned();
+            println!("{}", s.bug_report_url(id.as_deref())?);
+            println!("{}", s.execute(Command::ReportBug(id), &mut |_| {})?);
+        }
         "agent-setup" => println!("{}", s.execute(Command::SetupAgent, &mut |_| {})?),
         "login" => println!("{}", s.execute(Command::SignInGoogle, &mut |_| {})?),
         "logout" => println!("{}", s.execute(Command::SignOutGoogle, &mut |_| {})?),

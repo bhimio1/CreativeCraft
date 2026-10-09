@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "CreativeCraft L2: AI chat driven by an external agent CLI (Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or your own), wired to the hub's MCP server"
+description = "CreativeCraft L2: the AI assistant, an external agent CLI (Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or your own), wired to the hub's MCP server"
 
 [lints]
 workspace = true

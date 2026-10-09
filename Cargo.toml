@@ -8,7 +8,7 @@ version = "0.1.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
-repository = "https://github.com/YOUR-ORG/creativecraft"
+repository = "https://github.com/bhimio1/CreativeCraft"
 
 [workspace.dependencies]
 # internal (layer in brackets; a crate may only depend on lower layers)
@@ -42,6 +42,9 @@ open = "5"
 eframe = { version = "0.36", default-features = false }
 egui = "0.36"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# the Assistant page's terminal: a real PTY (ConPTY on Windows) and a VT parser
+portable-pty = "0.9"
+vt100 = "0.16"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -36,6 +36,10 @@ pub struct AppSpec {
     pub kind: Kind,
     pub license: String,
     pub homepage: String,
+    /// Where to report a bug. Release apps default to their GitHub issues; external apps name
+    /// their project's own tracker.
+    #[serde(default)]
+    pub bugs: Option<String>,
 
     // kind = "release"
     /// `owner/name` on GitHub.
@@ -63,6 +67,17 @@ pub struct AppSpec {
 impl AppSpec {
     pub fn has_mcp(&self) -> bool {
         self.cli.is_some() && self.mcp.is_some()
+    }
+
+    /// The `owner/name` of the GitHub repository issues go to, if bugs are reported on GitHub.
+    pub fn github_issues_repo(&self) -> Option<String> {
+        if let Some(url) = &self.bugs {
+            let rest = url.strip_prefix("https://github.com/")?;
+            let mut parts = rest.split('/');
+            let (owner, name) = (parts.next()?, parts.next()?);
+            return (parts.next() == Some("issues")).then(|| format!("{owner}/{name}"));
+        }
+        self.repo.clone()
     }
 
     fn validate(&self) -> Result<(), CatalogError> {

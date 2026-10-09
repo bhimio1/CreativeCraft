@@ -14,6 +14,17 @@ pub enum CloudChoice {
     Folder { path: PathBuf },
 }
 
+/// Window colour theme.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    /// Follow the operating system's light/dark setting.
+    #[default]
+    System,
+    Dark,
+    Light,
+}
+
 /// An extra MCP server the user wants the hub to front, e.g. a Blender add-on bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomMcp {
@@ -36,8 +47,11 @@ pub struct Settings {
     /// Sync automatically every N minutes while the hub is open (0 = only on demand).
     pub auto_sync_minutes: u32,
     pub custom_mcp: Vec<CustomMcp>,
-    /// The AI chat: which agent CLI runs it, and how.
+    /// The assistant: which agent CLI runs it, and how.
     pub agent: AgentSettings,
+    pub appearance: Appearance,
+    /// Play the short start-up animation when the window opens.
+    pub intro_animation: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +65,8 @@ impl Default for Settings {
             auto_sync_minutes: 10,
             custom_mcp: Vec::new(),
             agent: AgentSettings::default(),
+            appearance: Appearance::System,
+            intro_animation: true,
         }
     }
 }

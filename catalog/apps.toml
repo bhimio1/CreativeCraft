@@ -7,6 +7,9 @@
 #                    Program Files) and links to the project's official download page. Use this for
 #                    apps whose licence or packaging we don't want to redistribute or re-wrap.
 #
+# `bugs` is where "Report a bug" goes: release apps default to their repo's GitHub issues (pre-filled
+# with the app and system details); external apps name their project's own tracker.
+#
 # `mcp` is the argument list that makes `cli` speak MCP (JSON-RPC 2.0, one message per line on
 # stdio). Every Craft app uses `<app>-cli mcp`. Extra MCP servers (for example a Blender add-on
 # bridge) are added by the user in settings, not here.
@@ -74,12 +77,12 @@ name = "PdfCraft"
 category = "Documents"
 summary = "PDF viewing, editing, merging and splitting."
 kind = "release"
-repo = "storytold/printcraft"
+repo = "storytold/pdfcraft"
 gui = "pdfcraft"
 cli = "pdfcraft-cli"
 mcp = ["mcp"] # needs a build with the `mcp` feature; the hub reports it if the binary lacks it
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/storytold/printcraft"
+homepage = "https://github.com/storytold/pdfcraft"
 
 [[app]]
 id = "effectcraft"
@@ -107,6 +110,71 @@ mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/designcraft"
 
+[[app]]
+id = "cadcraft"
+name = "CADCraft"
+category = "CAD"
+summary = "Computer-aided design and drafting: 2D drawings, constraints, layers, dimensions."
+kind = "release"
+repo = "storytold/cadcraft"
+gui = "cadcraft"
+cli = "cadcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/cadcraft"
+
+[[app]]
+id = "soundcraft"
+name = "SoundCraft"
+category = "Audio"
+summary = "Multitrack audio recording, editing and mixing."
+kind = "release"
+repo = "storytold/soundcraft"
+gui = "soundcraft"
+cli = "soundcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/soundcraft"
+
+[[app]]
+id = "wordcraft"
+name = "WordCraft"
+category = "Writing"
+summary = "Word processing: styled documents, tables, images, page layout."
+kind = "release"
+repo = "storytold/wordcraft"
+gui = "wordcraft"
+cli = "wordcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/wordcraft"
+
+[[app]]
+id = "gridcraft"
+name = "GridCraft"
+category = "Spreadsheets"
+summary = "Spreadsheets: formulas, charts, sorting and filtering."
+kind = "release"
+repo = "storytold/gridcraft"
+gui = "gridcraft"
+cli = "gridcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/gridcraft"
+
+[[app]]
+id = "deckcraft"
+name = "DeckCraft"
+category = "Presentations"
+summary = "Presentations and slide shows."
+kind = "release"
+repo = "storytold/deckcraft"
+gui = "deckcraft"
+cli = "deckcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/deckcraft"
+
 # ───────────────────────── Other open-source apps (detected, not bundled) ─────────────────────────
 
 [[app]]
@@ -120,6 +188,7 @@ mac_bundle = "Blender.app"
 windows_dirs = ["Blender Foundation"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.blender.org/download/"
+bugs = "https://projects.blender.org/blender/blender/issues"
 
 [[app]]
 id = "krita"
@@ -132,6 +201,7 @@ mac_bundle = "krita.app"
 windows_dirs = ["Krita (x64)"]
 license = "GPL-3.0-or-later"
 homepage = "https://krita.org/en/download/"
+bugs = "https://bugs.kde.org/enter_bug.cgi?product=krita"
 
 [[app]]
 id = "inkscape"
@@ -144,6 +214,7 @@ mac_bundle = "Inkscape.app"
 windows_dirs = ["Inkscape"]
 license = "GPL-2.0-or-later"
 homepage = "https://inkscape.org/release/"
+bugs = "https://inkscape.org/report"
 
 [[app]]
 id = "gimp"
@@ -156,6 +227,7 @@ mac_bundle = "GIMP.app"
 windows_dirs = ["GIMP 3", "GIMP 2"]
 license = "GPL-3.0-or-later"
 homepage = "https://www.gimp.org/downloads/"
+bugs = "https://gitlab.gnome.org/GNOME/gimp/-/issues"
 
 [[app]]
 id = "kdenlive"
@@ -168,6 +240,7 @@ mac_bundle = "kdenlive.app"
 windows_dirs = ["kdenlive"]
 license = "GPL-3.0-or-later"
 homepage = "https://kdenlive.org/en/download/"
+bugs = "https://bugs.kde.org/enter_bug.cgi?product=kdenlive"
 
 [[app]]
 id = "darktable"
@@ -180,6 +253,7 @@ mac_bundle = "darktable.app"
 windows_dirs = ["darktable"]
 license = "GPL-3.0-or-later"
 homepage = "https://www.darktable.org/install/"
+bugs = "https://github.com/darktable-org/darktable/issues"
 
 [[app]]
 id = "godot"
@@ -192,6 +266,7 @@ mac_bundle = "Godot.app"
 windows_dirs = []
 license = "MIT"
 homepage = "https://godotengine.org/download/"
+bugs = "https://github.com/godotengine/godot/issues"
 
 [[app]]
 id = "comfyui"
@@ -204,3 +279,4 @@ mac_bundle = "ComfyUI.app"
 windows_dirs = ["ComfyUI"]
 license = "GPL-3.0"
 homepage = "https://github.com/comfyanonymous/ComfyUI"
+bugs = "https://github.com/comfyanonymous/ComfyUI/issues"

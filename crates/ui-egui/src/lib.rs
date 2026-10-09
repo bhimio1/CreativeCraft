@@ -1,17 +1,20 @@
 //! The hub window (L4). Thin by design: it shows state and turns clicks into engine commands.
 //! Long commands (installs, syncs) run on a worker thread; progress comes back over a channel.
 //!
-//! Layout: a top bar (brand, search, sync state, settings), a three-item sidebar (Apps, Files,
-//! Assistant) and one content area. Everything else (cloud setup, assistant setup, connections)
-//! lives in the Settings dialog, so the main screens stay uncluttered.
+//! Layout: a top bar (brand, search, sync state, theme, settings), a sidebar (Apps, Files,
+//! Assistant, and Settings at the bottom) and one content area. Cloud setup, assistant setup and
+//! connections live on the Settings page, so the main screens stay uncluttered.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod assets;
-mod chat;
+mod assistant;
+mod settings;
+mod splash;
+mod terminal;
 mod theme;
 
 use creativecraft_catalog::Kind;
-use creativecraft_engine::{CloudChoice, Command, CustomMcp, Event, Session, Settings};
+use creativecraft_engine::{Appearance, CloudChoice, Command, CustomMcp, Event, Session, Settings};
 use creativecraft_install::{Progress, Status};
 use egui::{RichText, vec2};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -22,14 +25,7 @@ pub enum Page {
     Apps,
     Files,
     Assistant,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SettingsTab {
-    General,
-    Cloud,
-    Assistant,
-    Connections,
+    Settings,
 }
 
 /// One app, copied out of the session so drawing never waits on a running job.
@@ -56,6 +52,9 @@ pub struct CreativeCraftApp {
     page: Page,
     rows: Vec<Row>,
     draft: Settings,
+    /// What's on disk; the Settings page saves `draft` a moment after it differs.
+    saved: Settings,
+    dirty_since: Option<f64>,
     signed_in: bool,
     cli_path: String,
     tx: Sender<Msg>,
@@ -70,28 +69,31 @@ pub struct CreativeCraftApp {
     new_mcp: CustomMcp,
     search: String,
     last_auto_sync: f64,
-    settings_open: bool,
-    settings_tab: SettingsTab,
-    chat: chat::ChatState,
+    settings_section: settings::Section,
+    assistant: assistant::AssistantState,
+    splash: splash::Splash,
 }
 
 impl CreativeCraftApp {
     pub fn new(session: Session, ctx: egui::Context) -> CreativeCraftApp {
-        theme::apply(&ctx);
         let (tx, rx) = channel();
         let cli_path = std::env::current_exe()
             .ok()
             .map(|p| p.with_file_name(if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" }).display().to_string())
             .unwrap_or_else(|| "creativecraft-cli".into());
         let draft = session.settings.clone();
-        let chat = chat::ChatState::new(session.chat_file());
+        let splash = splash::Splash::new(draft.intro_animation);
+        theme::apply(&ctx, wants_dark(&ctx, draft.appearance));
+        assets::install_fallback_fonts(&ctx);
         let mut app = CreativeCraftApp {
             session: Arc::new(Mutex::new(session)),
             tex: assets::Textures::load(&ctx),
             ctx,
             page: Page::Apps,
             rows: Vec::new(),
+            saved: draft.clone(),
             draft,
+            dirty_since: None,
             signed_in: false,
             cli_path,
             tx,
@@ -104,11 +106,28 @@ impl CreativeCraftApp {
             new_mcp: CustomMcp { id: String::new(), name: String::new(), command: String::new(), args: Vec::new() },
             search: String::new(),
             last_auto_sync: 0.0,
-            settings_open: false,
-            settings_tab: SettingsTab::General,
-            chat,
+            settings_section: settings::Section::General,
+            assistant: assistant::AssistantState::default(),
+            splash,
         };
         app.refresh();
+        // debug builds only: open on a given page, for screenshots and manual testing
+        #[cfg(debug_assertions)]
+        match std::env::var("CREATIVECRAFT_DEBUG_PAGE").as_deref() {
+            Ok("files") => app.page = Page::Files,
+            Ok("assistant") => app.page = Page::Assistant,
+            Ok("settings") => app.page = Page::Settings,
+            Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") => {
+                app.page = Page::Settings;
+                app.settings_section = match std::env::var("CREATIVECRAFT_DEBUG_PAGE").as_deref() {
+                    Ok("settings:appearance") => settings::Section::Appearance,
+                    Ok("settings:cloud") => settings::Section::Cloud,
+                    Ok("settings:connections") => settings::Section::Connections,
+                    _ => settings::Section::Assistant,
+                };
+            }
+            _ => {}
+        }
         app
     }
 
@@ -210,8 +229,12 @@ impl CreativeCraftApp {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // "System" follows the OS live; a change in Settings previews immediately
+        let dark = wants_dark(ui.ctx(), self.draft.appearance);
+        if dark != theme::is_dark() {
+            theme::apply(ui.ctx(), dark);
+        }
         self.pump();
-        self.pump_chat();
         self.auto_sync();
         let t = theme::Tokens::get();
 
@@ -224,43 +247,64 @@ impl CreativeCraftApp {
             .frame(egui::Frame::NONE.fill(t.bar).inner_margin(egui::Margin { left: 10, right: 10, top: 14, bottom: 10 }))
             .show(ui, |ui| {
                 for (page, label) in [(Page::Apps, "Apps"), (Page::Files, "Files"), (Page::Assistant, "Assistant")] {
-                    let selected = self.page == page;
-                    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), egui::Sense::click());
-                    if selected || resp.hovered() {
-                        ui.painter().rect_filled(rect, 6.0, t.row_hover);
-                    }
-                    let color = if selected { t.ink } else { t.muted };
-                    ui.painter().text(rect.left_center() + vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), color);
-                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                        self.page = page;
-                    }
-                    ui.add_space(4.0);
+                    self.nav_item(ui, page, label);
                 }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    self.nav_item(ui, Page::Settings, "Settings");
+                    self.report_hub_bug_link(ui);
+                });
             });
 
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.bg).inner_margin(egui::Margin::symmetric(32, 24))).show(ui, |ui| {
-            if self.page == Page::Assistant {
-                // the chat lays out its own scrolling transcript and input box
-                self.chat_page(ui);
-                return;
+            // the terminal and the settings page lay out (and scroll) themselves
+            match self.page {
+                Page::Assistant => self.assistant_page(ui),
+                Page::Settings => self.settings_page(ui),
+                Page::Apps | Page::Files => {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                        if self.page == Page::Apps { self.apps_page(ui) } else { self.files_page(ui) }
+                    });
+                }
             }
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match self.page {
-                Page::Apps => self.apps_page(ui),
-                Page::Files => self.files_page(ui),
-                Page::Assistant => {}
-            });
         });
-
-        if self.settings_open {
-            self.settings_dialog(ui.ctx().clone());
+        if self.page != Page::Settings && self.draft != self.saved {
+            // left the page (or toggled the theme) with an edit pending
+            self.save_draft();
         }
+        self.splash.show(ui.ctx(), &self.tex);
+    }
+
+    /// "Report a bug" for CreativeCraft itself, quiet at the foot of the sidebar.
+    fn report_hub_bug_link(&mut self, ui: &mut egui::Ui) {
+        let t = theme::Tokens::get();
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), egui::Sense::click());
+        let color = if resp.hovered() { t.ink } else { t.muted };
+        ui.painter().text(rect.left_center() + vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, "Report a bug", egui::FontId::proportional(13.0), color);
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Report a problem with CreativeCraft").clicked() {
+            self.run("Report a bug", Command::ReportBug(None));
+        }
+    }
+
+    fn nav_item(&mut self, ui: &mut egui::Ui, page: Page, label: &str) {
+        let t = theme::Tokens::get();
+        let selected = self.page == page;
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), egui::Sense::click());
+        if selected || resp.hovered() {
+            ui.painter().rect_filled(rect, 6.0, t.row_hover);
+        }
+        let color = if selected { t.ink } else { t.muted };
+        ui.painter().text(rect.left_center() + vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), color);
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            self.page = page;
+        }
+        ui.add_space(4.0);
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let t = theme::Tokens::get();
         ui.horizontal_centered(|ui| {
             // brand: the ArtCraft wordmark as supplied, at a fixed height
-            if let Some(logo) = &self.tex.logo {
+            if let Some(logo) = self.tex.logo() {
                 let h = 15.0;
                 let w = h * logo.size()[0] as f32 / logo.size()[1].max(1) as f32;
                 let (rect, _) = ui.allocate_exact_size(vec2(w, h), egui::Sense::hover());
@@ -281,7 +325,13 @@ impl CreativeCraftApp {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add(egui::Button::new(RichText::new("⚙").size(18.0)).frame(false)).on_hover_text("Settings").clicked() {
-                    self.settings_open = true;
+                    self.page = Page::Settings;
+                }
+                ui.add_space(4.0);
+                let dark = theme::is_dark();
+                if theme_toggle(ui, dark).on_hover_text(if dark { "Switch to light theme" } else { "Switch to dark theme" }).clicked() {
+                    self.draft.appearance = if dark { Appearance::Light } else { Appearance::Dark };
+                    self.save_draft();
                 }
                 ui.add_space(8.0);
                 self.sync_indicator(ui);
@@ -378,28 +428,10 @@ impl CreativeCraftApp {
                 ui.add(egui::ProgressBar::new(*f).desired_width(140.0).desired_height(6.0));
                 return;
             }
+            // every app gets the same menu; what's in it depends on how it's installed
+            self.app_menu(ui, r, idle);
             match (&r.status, r.kind) {
-                (Status::Installed { .. }, _) => {
-                    ui.menu_button(RichText::new("…").size(16.0), |ui| {
-                        if ui.add_enabled(idle, egui::Button::new("Check for update")).clicked() {
-                            self.run(format!("Update {}", r.name), Command::Install(r.id.clone()));
-                            ui.close();
-                        }
-                        if ui.button("Website").clicked() {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(&r.homepage));
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.add_enabled(idle, egui::Button::new(RichText::new("Uninstall").color(t.danger))).clicked() {
-                            self.run(format!("Uninstall {}", r.name), Command::Uninstall(r.id.clone()));
-                            ui.close();
-                        }
-                    });
-                    if ui.add_enabled(idle, theme::primary("Open")).clicked() {
-                        self.run(format!("Open {}", r.name), Command::Launch(r.id.clone(), vec![]));
-                    }
-                }
-                (Status::Detected { .. }, _) => {
+                (Status::Installed { .. } | Status::Detected { .. }, _) => {
                     if ui.add_enabled(idle, theme::primary("Open")).clicked() {
                         self.run(format!("Open {}", r.name), Command::Launch(r.id.clone(), vec![]));
                     }
@@ -417,6 +449,32 @@ impl CreativeCraftApp {
             }
         });
         ui.add_space(4.0);
+    }
+
+    fn app_menu(&mut self, ui: &mut egui::Ui, r: &Row, idle: bool) {
+        let t = theme::Tokens::get();
+        let installed = matches!(r.status, Status::Installed { .. });
+        ui.menu_button(RichText::new("…").size(16.0), |ui| {
+            if installed && ui.add_enabled(idle, egui::Button::new("Check for update")).clicked() {
+                self.run(format!("Update {}", r.name), Command::Install(r.id.clone()));
+                ui.close();
+            }
+            if ui.button("Website").clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(&r.homepage));
+                ui.close();
+            }
+            if ui.add_enabled(idle, egui::Button::new("Report a bug")).on_hover_text(format!("Opens {}'s issue tracker", r.name)).clicked() {
+                self.run(format!("Report a bug in {}", r.name), Command::ReportBug(Some(r.id.clone())));
+                ui.close();
+            }
+            if installed {
+                ui.separator();
+                if ui.add_enabled(idle, egui::Button::new(RichText::new("Uninstall").color(t.danger))).clicked() {
+                    self.run(format!("Uninstall {}", r.name), Command::Uninstall(r.id.clone()));
+                    ui.close();
+                }
+            }
+        });
     }
 
     // ─────────────────────────── Files ───────────────────────────
@@ -461,8 +519,8 @@ impl CreativeCraftApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &self.draft.cloud {
                     CloudChoice::Off => {
                         if ui.add(theme::secondary("Set up")).clicked() {
-                            self.settings_tab = SettingsTab::Cloud;
-                            self.settings_open = true;
+                            self.settings_section = settings::Section::Cloud;
+                            self.page = Page::Settings;
                         }
                     }
                     CloudChoice::GoogleDrive { .. } if !self.signed_in => {
@@ -490,220 +548,63 @@ impl CreativeCraftApp {
         }
     }
 
-    // ─────────────────────────── Settings dialog ───────────────────────────
-
-    fn settings_dialog(&mut self, ctx: egui::Context) {
-        let t = theme::Tokens::get();
-        let modal = egui::Modal::new(egui::Id::new("settings")).show(&ctx, |ui| {
-            ui.set_width(560.0);
-            ui.label(RichText::new("Settings").size(18.0).strong());
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                for (tab, label) in [
-                    (SettingsTab::General, "General"),
-                    (SettingsTab::Cloud, "Cloud"),
-                    (SettingsTab::Assistant, "Assistant"),
-                    (SettingsTab::Connections, "Connections"),
-                ] {
-                    let sel = self.settings_tab == tab;
-                    if ui
-                        .add(egui::Button::new(RichText::new(label).color(if sel { t.ink } else { t.muted })).fill(if sel {
-                            t.row_hover
-                        } else {
-                            egui::Color32::TRANSPARENT
-                        }))
-                        .clicked()
-                    {
-                        self.settings_tab = tab;
-                    }
-                }
-            });
-            ui.separator();
-            ui.add_space(8.0);
-            egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| match self.settings_tab {
-                SettingsTab::General => self.settings_general(ui),
-                SettingsTab::Cloud => self.settings_cloud(ui),
-                SettingsTab::Assistant => self.settings_assistant(ui),
-                SettingsTab::Connections => self.settings_connections(ui),
-            });
-            ui.add_space(12.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(theme::primary("Done")).clicked() {
-                    self.save_draft();
-                    self.settings_open = false;
-                }
-                if ui.add(theme::secondary("Cancel")).clicked() {
-                    if let Ok(s) = self.session.try_lock() {
-                        self.draft = s.settings.clone();
-                    }
-                    self.settings_open = false;
-                }
-            });
-        });
-        if self.settings_open && modal.should_close() {
-            self.save_draft();
-            self.settings_open = false;
-        }
-    }
-
-    fn field(ui: &mut egui::Ui, label: &str) {
-        let t = theme::Tokens::get();
-        ui.label(RichText::new(label).size(12.0).color(t.muted));
-    }
-
-    fn settings_general(&mut self, ui: &mut egui::Ui) {
-        Self::field(ui, "Projects folder");
-        let mut p = self.draft.projects_dir.display().to_string();
-        if ui.add(egui::TextEdit::singleline(&mut p).desired_width(f32::INFINITY)).changed() {
-            self.draft.projects_dir = p.into();
-        }
-        ui.add_space(8.0);
-        Self::field(ui, "This computer's name (labels conflicting copies)");
-        ui.add(egui::TextEdit::singleline(&mut self.draft.device_name).desired_width(260.0));
-    }
-
-    fn settings_cloud(&mut self, ui: &mut egui::Ui) {
-        let t = theme::Tokens::get();
-        let is = |c: &CloudChoice, k: u8| matches!((c, k), (CloudChoice::Off, 0) | (CloudChoice::GoogleDrive { .. }, 1) | (CloudChoice::Folder { .. }, 2));
-        if ui.radio(is(&self.draft.cloud, 0), "Off").clicked() {
-            self.draft.cloud = CloudChoice::Off;
-        }
-        if ui.radio(is(&self.draft.cloud, 1), "Google Drive").clicked() && !is(&self.draft.cloud, 1) {
-            self.draft.cloud = CloudChoice::GoogleDrive { client_id: String::new(), client_secret: String::new() };
-        }
-        if ui.radio(is(&self.draft.cloud, 2), "A folder your sync app already backs up").clicked() && !is(&self.draft.cloud, 2) {
-            self.draft.cloud = CloudChoice::Folder { path: Default::default() };
-        }
-        ui.add_space(8.0);
-        match &mut self.draft.cloud {
-            CloudChoice::GoogleDrive { client_id, client_secret } => {
-                Self::field(ui, "OAuth client (Desktop app)");
-                ui.add(egui::TextEdit::singleline(client_id).hint_text("Client ID").desired_width(f32::INFINITY));
-                ui.add(egui::TextEdit::singleline(client_secret).hint_text("Client secret").password(true).desired_width(f32::INFINITY));
-                ui.label(RichText::new("CreativeCraft can only see the files it creates in your Drive.").size(11.0).color(t.muted));
-            }
-            CloudChoice::Folder { path } => {
-                Self::field(ui, "Folder");
-                let mut p = path.display().to_string();
-                if ui.add(egui::TextEdit::singleline(&mut p).hint_text("e.g. ~/Dropbox/Art").desired_width(f32::INFINITY)).changed() {
-                    *path = p.into();
-                }
-            }
-            CloudChoice::Off => {}
-        }
-        if !matches!(self.draft.cloud, CloudChoice::Off) {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label("Sync every");
-                ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
-                ui.label("minutes (0 = manual)");
-            });
-        }
-        if matches!(self.draft.cloud, CloudChoice::GoogleDrive { .. })
-            && self.signed_in
-            && ui.add_enabled(self.busy.is_none(), theme::secondary("Sign out")).clicked()
-        {
-            self.run("Sign out", Command::SignOutGoogle);
-        }
-    }
-
-    fn settings_assistant(&mut self, ui: &mut egui::Ui) {
-        use creativecraft_engine::agent::Backend;
-        let t = theme::Tokens::get();
-        let a = &mut self.draft.agent;
-        Self::field(ui, "Agent");
-        egui::ComboBox::from_id_salt("settings_backend").selected_text(a.backend.name()).width(260.0).show_ui(ui, |ui| {
-            for b in Backend::ALL {
-                ui.selectable_value(&mut a.backend, b, b.name());
-            }
-        });
-        ui.add_space(8.0);
-        if a.backend == Backend::Custom {
-            Self::field(ui, "Command ({prompt} = your message, {mcp_config} = CreativeCraft's MCP config file)");
-            ui.add(egui::TextEdit::singleline(&mut a.custom_command).hint_text("mytool run --mcp {mcp_config} {prompt}").desired_width(f32::INFINITY));
-        } else {
-            Self::field(ui, "Program");
-            let mut bin = a.binary.clone().unwrap_or_default();
-            if ui.add(egui::TextEdit::singleline(&mut bin).hint_text(a.backend.default_binary()).desired_width(f32::INFINITY)).changed() {
-                a.binary = (!bin.trim().is_empty()).then_some(bin);
-            }
-        }
-        ui.add_space(8.0);
-        Self::field(ui, "Model");
-        let mut model = a.model.clone().unwrap_or_default();
-        if ui.add(egui::TextEdit::singleline(&mut model).hint_text("the agent's default").desired_width(f32::INFINITY)).changed() {
-            a.model = (!model.trim().is_empty()).then_some(model);
-        }
-        ui.add_space(8.0);
-        ui.checkbox(&mut a.auto_approve, "Let the assistant use all its tools without asking");
-        ui.label(RichText::new("Off: only CreativeCraft's own tools are allowed.").size(11.0).color(t.muted));
-    }
-
-    fn settings_connections(&mut self, ui: &mut egui::Ui) {
-        let t = theme::Tokens::get();
-        ui.label(
-            RichText::new("CreativeCraft is an MCP server for all your apps. The Assistant uses it automatically; to use it from another app, add:")
-                .color(t.muted),
-        );
-        let config = serde_json::json!({ "mcpServers": { "creativecraft": { "command": self.cli_path, "args": ["mcp"] } } });
-        let text = serde_json::to_string_pretty(&config).unwrap_or_default();
-        egui::Frame::NONE.fill(t.bar).corner_radius(6).inner_margin(10).show(ui, |ui| {
-            ui.monospace(&text);
-        });
-        if ui.add(theme::secondary("Copy")).clicked() {
-            ui.ctx().copy_text(text);
-        }
-        ui.add_space(14.0);
-        Self::field(ui, "Extra MCP servers (e.g. a Blender add-on bridge)");
-        let mut remove = None;
-        for (i, c) in self.draft.custom_mcp.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.monospace(format!("{}  →  {} {}", c.id, c.command, c.args.join(" ")));
-                if ui.small_button("Remove").clicked() {
-                    remove = Some(i);
-                }
-            });
-        }
-        if let Some(i) = remove {
-            self.draft.custom_mcp.remove(i);
-        }
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.new_mcp.id).hint_text("id").desired_width(90.0));
-            ui.add(egui::TextEdit::singleline(&mut self.new_mcp.command).hint_text("command").desired_width(180.0));
-            let mut args = self.new_mcp.args.join(" ");
-            if ui.add(egui::TextEdit::singleline(&mut args).hint_text("arguments").desired_width(150.0)).changed() {
-                self.new_mcp.args = args.split_whitespace().map(String::from).collect();
-            }
-            let valid = !self.new_mcp.id.is_empty()
-                && self.new_mcp.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-                && !self.new_mcp.command.is_empty()
-                && !self.rows.iter().any(|r| r.id == self.new_mcp.id);
-            if ui.add_enabled(valid, egui::Button::new("Add")).clicked() {
-                let mut c = self.new_mcp.clone();
-                c.name = c.id.clone();
-                self.draft.custom_mcp.push(c);
-                self.new_mcp = CustomMcp { id: String::new(), name: String::new(), command: String::new(), args: Vec::new() };
-            }
-        });
-    }
-
+    /// Write the draft settings. Quiet on success (the page saves as you go); errors show in the
+    /// top bar and the save is retried on the next edit.
     fn save_draft(&mut self) {
         let result = match self.session.try_lock() {
             Ok(mut s) => {
-                if s.settings == self.draft {
-                    return;
+                if s.settings != self.draft {
+                    s.settings = self.draft.clone();
+                    s.save_settings().map_err(|e| e.to_string())
+                } else {
+                    Ok(())
                 }
-                s.settings = self.draft.clone();
-                s.save_settings().map(|_| "Settings saved".to_string()).map_err(|e| e.to_string())
             }
             Err(_) => Err("busy; try again in a moment".into()),
         };
-        let now = self.ctx.input(|i| i.time);
-        let (ok, text) = match result {
-            Ok(t) => (true, t),
-            Err(e) => (false, format!("Settings: {e}")),
-        };
-        self.last = Some((ok, text, now));
+        match result {
+            Ok(()) => self.saved = self.draft.clone(),
+            Err(e) => {
+                let now = self.ctx.input(|i| i.time);
+                self.last = Some((false, format!("Settings: {e}"), now));
+                // don't retry every frame
+                self.saved = self.draft.clone();
+            }
+        }
         self.refresh();
     }
+}
+
+/// Resolve the appearance setting to "dark or not" (the OS setting decides "System"; dark if unknown).
+fn wants_dark(ctx: &egui::Context, a: Appearance) -> bool {
+    match a {
+        Appearance::Dark => true,
+        Appearance::Light => false,
+        Appearance::System => ctx.system_theme() != Some(egui::Theme::Light),
+    }
+}
+
+/// A small sun (in the dark theme: click for light) or crescent moon (in the light theme).
+fn theme_toggle(ui: &mut egui::Ui, dark: bool) -> egui::Response {
+    let t = theme::Tokens::get();
+    let (rect, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let p = ui.painter();
+    if resp.hovered() {
+        p.circle_filled(rect.center(), 13.0, t.row_hover);
+    }
+    let c = rect.center();
+    let ink = if resp.hovered() { t.ink } else { t.muted };
+    if dark {
+        p.circle_filled(c, 4.0, ink);
+        for i in 0..8 {
+            let a = i as f32 * std::f32::consts::TAU / 8.0;
+            let d = vec2(a.cos(), a.sin());
+            p.line_segment([c + d * 6.5, c + d * 8.5], egui::Stroke::new(1.5, ink));
+        }
+    } else {
+        p.circle_filled(c, 7.0, ink);
+        p.circle_filled(c + vec2(3.5, -3.0), 6.0, if resp.hovered() { t.row_hover } else { t.bar });
+    }
+    resp
 }

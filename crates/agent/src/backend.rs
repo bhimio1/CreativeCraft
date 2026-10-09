@@ -2,7 +2,7 @@
 //! is invoked. Flags follow each project's published docs (checked October 2026); see
 //! docs/ai-chat.md for links and for what to re-check when a CLI changes.
 
-use crate::{AgentError, McpServer, SERVER_NAME, SYSTEM_CONTEXT, TurnRequest};
+use crate::{AgentError, LaunchSpec, McpServer, SERVER_NAME, SYSTEM_CONTEXT, SessionRequest, TurnRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -126,12 +126,7 @@ fn first_turn_prompt(req: &TurnRequest) -> String {
 pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
     let s = req.settings;
     let kind = s.backend;
-    let binary = if kind == Backend::Custom {
-        String::new()
-    } else {
-        let name = s.binary.as_deref().filter(|b| !b.trim().is_empty()).unwrap_or(kind.default_binary());
-        find_binary(name).ok_or(AgentError::NotInstalled { name: kind.name(), homepage: kind.homepage() })?.display().to_string()
-    };
+    let binary = if kind == Backend::Custom { String::new() } else { resolve_binary(s)? };
     let model = s.model.as_deref().filter(|m| !m.trim().is_empty());
 
     let mut cmd = match kind {
@@ -159,15 +154,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
         }
         Backend::OpenCode => {
             let cfg = req.state_dir.join("opencode.json");
-            let mut command = vec![req.hub.command.clone()];
-            command.extend(req.hub.args.iter().cloned());
-            write_json(
-                &cfg,
-                &json!({
-                    "$schema": "https://opencode.ai/config.json",
-                    "mcp": { SERVER_NAME: { "type": "local", "command": command, "enabled": true, "timeout": 30000 } },
-                }),
-            )?;
+            write_opencode_config(&cfg, req.hub)?;
             let mut c = Command::new(&binary);
             c.env("OPENCODE_CONFIG", &cfg);
             c.args(["run", "--format", "json"]);
@@ -208,13 +195,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
         }
         Backend::Antigravity => {
             // workspace-level config; merged so the user's own entries survive
-            let cfg = req.workspace.join(".agents").join("mcp_config.json");
-            let mut v: Value = std::fs::read(&cfg).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
-            if !v.get("mcpServers").is_some_and(Value::is_object) {
-                v["mcpServers"] = json!({});
-            }
-            v["mcpServers"][SERVER_NAME] = mcp_servers_json(req.hub)["mcpServers"][SERVER_NAME].clone();
-            write_json(&cfg, &v)?;
+            write_antigravity_config(req.workspace, req.hub)?;
             let mut c = Command::new(&binary);
             c.arg("-p").arg(as_arg(&first_turn_prompt(req)));
             c.args(["--output-format", "stream-json"]);
@@ -258,6 +239,111 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
     };
     cmd.current_dir(req.workspace);
     Ok(cmd)
+}
+
+/// The CLI's path from the settings (or its default name on `PATH`).
+fn resolve_binary(s: &crate::AgentSettings) -> Result<String, AgentError> {
+    let kind = s.backend;
+    let name = s.binary.as_deref().filter(|b| !b.trim().is_empty()).unwrap_or(kind.default_binary());
+    Ok(find_binary(name).ok_or(AgentError::NotInstalled { name: kind.name(), homepage: kind.homepage() })?.display().to_string())
+}
+
+/// Merge the hub into `<workspace>/.agents/mcp_config.json`, keeping the user's own entries.
+fn write_antigravity_config(workspace: &Path, hub: &McpServer) -> Result<(), AgentError> {
+    let cfg = workspace.join(".agents").join("mcp_config.json");
+    let mut v: Value = std::fs::read(&cfg).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
+    if !v.get("mcpServers").is_some_and(Value::is_object) {
+        v["mcpServers"] = json!({});
+    }
+    v["mcpServers"][SERVER_NAME] = mcp_servers_json(hub)["mcpServers"][SERVER_NAME].clone();
+    write_json(&cfg, &v)
+}
+
+fn write_opencode_config(path: &Path, hub: &McpServer) -> Result<(), AgentError> {
+    let mut command = vec![hub.command.clone()];
+    command.extend(hub.args.iter().cloned());
+    write_json(
+        path,
+        &json!({
+            "$schema": "https://opencode.ai/config.json",
+            "mcp": { SERVER_NAME: { "type": "local", "command": command, "enabled": true, "timeout": 30000 } },
+        }),
+    )
+}
+
+/// The CLI's interactive UI with the hub as its MCP server. Same wiring as a headless turn, minus
+/// the prompt and the JSON output flags; the user types into the CLI directly.
+pub(crate) fn interactive(req: &SessionRequest) -> Result<LaunchSpec, AgentError> {
+    let s = req.settings;
+    let model = s.model.as_deref().filter(|m| !m.trim().is_empty());
+    let mut env = Vec::new();
+    let mut args: Vec<String> = Vec::new();
+    let program = match s.backend {
+        Backend::ClaudeCode => {
+            let cfg = req.state_dir.join("claude-mcp.json");
+            write_json(&cfg, &mcp_servers_json(req.hub))?;
+            args.extend(["--mcp-config".into(), cfg.display().to_string(), "--append-system-prompt".into(), SYSTEM_CONTEXT.into()]);
+            if s.auto_approve {
+                args.push("--dangerously-skip-permissions".into());
+            } else {
+                args.extend(["--allowedTools".into(), format!("mcp__{SERVER_NAME}")]);
+            }
+            if let Some(m) = model {
+                args.extend(["--model".into(), m.into()]);
+            }
+            resolve_binary(s)?
+        }
+        Backend::OpenCode => {
+            let cfg = req.state_dir.join("opencode.json");
+            write_opencode_config(&cfg, req.hub)?;
+            env.push(("OPENCODE_CONFIG".into(), cfg.display().to_string()));
+            if let Some(m) = model {
+                args.extend(["--model".into(), m.into()]);
+            }
+            resolve_binary(s)?
+        }
+        Backend::Hermes => {
+            if !hermes_configured() {
+                return Err(AgentError::Setup(format!(
+                    "Hermes Agent doesn't know about CreativeCraft yet. Click “Set up”, or add this to ~/.hermes/config.yaml:\n\n{}",
+                    hermes_snippet(req.hub)
+                )));
+            }
+            args.push("chat".into());
+            if let Some(m) = model {
+                args.extend(["--model".into(), m.into()]);
+            }
+            if s.auto_approve {
+                args.push("--yolo".into());
+            }
+            resolve_binary(s)?
+        }
+        Backend::Antigravity => {
+            write_antigravity_config(req.workspace, req.hub)?;
+            if let Some(m) = model {
+                args.extend(["--model".into(), m.into()]);
+            }
+            if s.auto_approve {
+                args.push("--dangerously-skip-permissions".into());
+            }
+            resolve_binary(s)?
+        }
+        Backend::Custom => {
+            let words: Vec<&str> = s.custom_command.split_whitespace().collect();
+            let (prog, rest) = words.split_first().ok_or(AgentError::NoCustomCommand)?;
+            let cfg = req.state_dir.join("mcp.json");
+            write_json(&cfg, &mcp_servers_json(req.hub))?;
+            for w in rest {
+                match *w {
+                    "{prompt}" => {} // interactive: the user types the prompt
+                    "{mcp_config}" => args.push(cfg.display().to_string()),
+                    other => args.push(other.into()),
+                }
+            }
+            prog.to_string()
+        }
+    };
+    Ok(LaunchSpec { program, args, env, cwd: req.workspace.to_path_buf() })
 }
 
 // ─────────────────────────── Hermes: one-time setup ───────────────────────────
@@ -344,6 +430,34 @@ mod tests {
         let s = hermes_snippet(&McpServer { command: "/opt/cc/creativecraft-cli".into(), args: vec!["mcp".into()] });
         assert_eq!(s, "mcp_servers:\n  creativecraft:\n    command: \"/opt/cc/creativecraft-cli\"\n    args: [\"mcp\"]\n");
         assert!(yaml_has_server(&s));
+    }
+
+    fn session<'a>(settings: &'a crate::AgentSettings, dir: &'a Path, hub: &'a McpServer) -> SessionRequest<'a> {
+        SessionRequest { settings, workspace: dir, state_dir: dir, hub }
+    }
+
+    #[test]
+    fn custom_interactive_drops_prompt_and_fills_config() {
+        let dir = std::env::temp_dir().join(format!("cc-agent-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hub = McpServer { command: "cc".into(), args: vec!["mcp".into()] };
+        let settings =
+            crate::AgentSettings { backend: Backend::Custom, custom_command: "mytool --mcp {mcp_config} {prompt} -i".into(), ..Default::default() };
+        let spec = interactive(&session(&settings, &dir, &hub)).unwrap();
+        assert_eq!(spec.program, "mytool");
+        assert_eq!(spec.args, vec!["--mcp".to_string(), dir.join("mcp.json").display().to_string(), "-i".into()]);
+        assert_eq!(spec.cwd, dir);
+        let cfg: Value = serde_json::from_slice(&std::fs::read(dir.join("mcp.json")).unwrap()).unwrap();
+        assert_eq!(cfg["mcpServers"][SERVER_NAME]["command"], "cc");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_cli_is_reported() {
+        let dir = std::env::temp_dir();
+        let hub = McpServer { command: "cc".into(), args: vec![] };
+        let settings = crate::AgentSettings { binary: Some("/nonexistent/claude".into()), ..Default::default() };
+        assert!(matches!(interactive(&session(&settings, &dir, &hub)), Err(AgentError::NotInstalled { .. })));
     }
 
     #[test]

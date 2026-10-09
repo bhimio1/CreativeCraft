@@ -75,12 +75,14 @@ Tools from app servers are re-exported as `<app>__<tool>`; the hub sends
 `notifications/tools/list_changed` when an app server starts so the host refreshes its tool list.
 `app_tools` / `app_call` give hosts that don't refresh a way in, too.
 
-## AI chat
+## AI assistant
 
-See [ai-chat.md](ai-chat.md). The window starts a turn with `creativecraft_agent::start_turn`; the
-backend CLI runs as a child process in the projects folder and connects back to the hub through a
-fresh `creativecraft-cli mcp` process, so everything the agent does still goes through engine
-commands. Syncs take a lock file (`<projects>/.creativecraft/sync.lock`) because the window, the
+See [ai-chat.md](ai-chat.md). The Assistant page gets a launch spec from
+`creativecraft_agent::interactive_launch` and runs it in a PTY (`portable-pty`), drawing the screen
+from a `vt100` parser (`crates/ui-egui/src/terminal.rs`); `creativecraft-cli chat` runs headless
+turns with `start_turn`. Either way the backend CLI runs as a child process in the projects folder
+and connects back to the hub through a fresh `creativecraft-cli mcp` process, so everything the
+agent does still goes through engine commands. Syncs take a lock file (`<projects>/.creativecraft/sync.lock`) because the window, the
 CLI and the agent's hub process can each start one.
 
 ## On disk
@@ -92,7 +94,7 @@ CLI and the agent's hub process can each start one.
 <config>/settings.json
 <config>/apps.toml                optional catalog overlay
 <config>/google-token.json        (0600)
-<data>/chat.json                  chat transcript (the model history lives in the backend's session)
+<data>/chat.json                  `creativecraft-cli chat` transcript (the model history lives in the backend's session)
 <projects>/.creativecraft/sync-base.json, sync.lock, trash/, agent/
 <projects>/.agents/mcp_config.json   Antigravity's workspace MCP config (not synced)
 ```

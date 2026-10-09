@@ -5,11 +5,12 @@
 //! there is exactly one implementation of each action.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+mod report;
 mod settings;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
-pub use settings::{CloudChoice, CustomMcp, Settings};
+pub use settings::{Appearance, CloudChoice, CustomMcp, Settings};
 
 use creativecraft_catalog::{AppSpec, Catalog, Kind};
 use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, GoogleDrive, sync};
@@ -45,6 +46,8 @@ pub enum Command {
     Uninstall(String),
     Launch(String, Vec<PathBuf>),
     OpenHomepage(String),
+    /// Open the issue tracker for an app (`Some(id)`) or for CreativeCraft itself (`None`).
+    ReportBug(Option<String>),
     Sync,
     SignInGoogle,
     SignOutGoogle,
@@ -59,6 +62,8 @@ impl Command {
             Command::Uninstall(_) => "app.uninstall",
             Command::Launch(..) => "app.launch",
             Command::OpenHomepage(_) => "app.homepage",
+            Command::ReportBug(Some(_)) => "app.report_bug",
+            Command::ReportBug(None) => "hub.report_bug",
             Command::Sync => "cloud.sync",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
@@ -108,6 +113,17 @@ impl Session {
         self.installer.status(app)
     }
 
+    /// Where "Report a bug" goes for an app (`Some(id)`) or for CreativeCraft (`None`).
+    pub fn bug_report_url(&self, id: Option<&str>) -> Result<String, EngineError> {
+        let Some(id) = id else { return Ok(report::bug_report_url(None, None)) };
+        let app = self.app(id)?;
+        let version = match self.status(&app) {
+            Status::Installed { version } => Some(version),
+            _ => None,
+        };
+        Ok(report::bug_report_url(Some(&app), version.as_deref()))
+    }
+
     fn token_file(&self) -> PathBuf {
         self.dirs.config().join("google-token.json")
     }
@@ -151,6 +167,11 @@ impl Session {
                 let app = self.app(&id)?;
                 Installer::open_homepage(&app)?;
                 Ok(format!("opened {}", app.homepage))
+            }
+            Command::ReportBug(id) => {
+                let url = self.bug_report_url(id.as_deref())?;
+                Installer::open_url(&url)?;
+                Ok("Opened the bug report page".into())
             }
             Command::Sync => {
                 let mut store = self.cloud_store()?;

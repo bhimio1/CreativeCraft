@@ -217,7 +217,12 @@ impl Installer {
 
     /// Open the official download page of an external app in the browser.
     pub fn open_homepage(app: &AppSpec) -> Result<(), InstallError> {
-        open::that_detached(&app.homepage)?;
+        Self::open_url(&app.homepage)
+    }
+
+    /// Open a web page in the default browser.
+    pub fn open_url(url: &str) -> Result<(), InstallError> {
+        open::that_detached(url)?;
         Ok(())
     }
 }

@@ -1,12 +1,22 @@
-# AI chat
+# AI assistant
 
-The chat in CreativeCraft is a front end for an **agent CLI you already use**. CreativeCraft
-doesn't call any model API itself and never sees an API key: your agent keeps its own account,
-model choice and settings. What CreativeCraft adds is the tools: every turn, the agent gets exactly
-one MCP server, the hub (`creativecraft-cli mcp`), which fronts all your agent-ready apps.
+The assistant in CreativeCraft is an **agent CLI you already use**. CreativeCraft doesn't call any
+model API itself and never sees an API key: your agent keeps its own account, model choice and
+settings. What CreativeCraft adds is the tools: the agent gets the hub (`creativecraft-cli mcp`) as
+an MCP server, which fronts all your agent-ready apps.
+
+There are two ways in:
+
+- **The Assistant page** is a terminal. It starts the agent's own interactive UI (`claude`,
+  `opencode`, `hermes chat`, `agy`, or your command) in the projects folder, wired to the hub, and
+  you use it exactly as you would in any terminal. It starts when you first open the page;
+  **Restart** begins a fresh session and **End** stops it. Ctrl+C copies when text is selected and
+  interrupts otherwise; drag to select, scroll for history.
+- **`creativecraft-cli chat "…"`** runs one headless turn per message, resuming the agent's session,
+  and prints the parsed reply.
 
 ```text
-chat window ─▶ agent CLI, one headless run per message, resuming its own session
+Assistant terminal ─▶ agent CLI, interactive        creativecraft-cli chat ─▶ agent CLI, one headless run per message
                  └─ MCP ─▶ creativecraft-cli mcp ─┬─ hub_list_apps / hub_install_app / hub_launch_app / hub_sync_projects
                                                    ├─ photocraft-cli mcp   (started on first use, tools as photocraft__…)
                                                    ├─ vectorcraft-cli mcp …
@@ -17,6 +27,13 @@ The agent runs in your projects folder, so it can also read and write project fi
 tools when you allow that.
 
 ## Backends
+
+Interactive sessions use the same MCP wiring as headless turns, without the prompt and output
+flags. Claude Code gets the hub through `--mcp-config` but keeps your other MCP servers (no
+`--strict-mcp-config`), and the CreativeCraft context through `--append-system-prompt`; the other
+CLIs have no system-prompt flag, so there the agent learns the tools from the hub's tool list.
+
+The headless invocations:
 
 | Backend | Program | How CreativeCraft passes the hub | Headless invocation | Resumes with |
 |---|---|---|---|---|
