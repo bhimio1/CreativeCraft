@@ -205,7 +205,6 @@ jobs:
     name: AUR package
     needs: release
     runs-on: ubuntu-latest
-    container: archlinux:base-devel
     steps:
       - uses: actions/checkout@v4
 
@@ -215,27 +214,35 @@ jobs:
           path: assets
           merge-multiple: true
 
-      - name: Generate PKGBUILD
+      - name: Generate PKGBUILD and .SRCINFO
         shell: bash
         run: |
           VERSION=${TAG#v}
           sha() { cut -d' ' -f1 "assets/creativecraft-${VERSION}-linux-$1.tar.gz.sha256"; }
           mkdir -p aur
           sed -e "s/@VERSION@/${VERSION}/" -e "s/@SHA256_X86_64@/$(sha x86_64)/" -e "s/@SHA256_AARCH64@/$(sha aarch64)/" packaging/aur/PKGBUILD.in > aur/PKGBUILD
-          cat aur/PKGBUILD
+          packaging/aur/srcinfo.sh aur/PKGBUILD > aur/.SRCINFO
+          cat aur/PKGBUILD aur/.SRCINFO
 
-      - name: Build the package from the published release
+      # What makepkg would do, without needing an Arch container: fetch each source from the
+      # published release, check its checksum, run package() into a scratch root.
+      - name: Test the package against the published release
         shell: bash
         run: |
-          pacman -Syu --noconfirm --needed namcap
-          useradd -m builder
-          chown -R builder aur
-          cd aur
-          sudo -u builder makepkg --printsrcinfo > .SRCINFO
-          # -d: only checking that the release archive downloads, verifies and packages correctly
-          sudo -u builder makepkg -f -d --noconfirm
-          namcap PKGBUILD *.pkg.tar.zst || true
-          cp PKGBUILD ../creativecraft-bin.PKGBUILD
+          set -euo pipefail
+          source aur/PKGBUILD
+          for CARCH in "${arch[@]}"; do
+            src="source_${CARCH}[0]"; sum="sha256sums_${CARCH}[0]"
+            work=$(mktemp -d); pkgdir=$(mktemp -d)
+            curl -fsSL --retry 3 -o "$work/pkg.tar.gz" "${!src}"
+            echo "${!sum}  $work/pkg.tar.gz" | sha256sum -c -
+            tar -xzf "$work/pkg.tar.gz" -C "$work"
+            (cd "$work" && srcdir="$work" pkgdir="$pkgdir" CARCH="$CARCH" package)
+            echo "== $CARCH"; (cd "$pkgdir" && find . -type f | sort)
+            test -x "$pkgdir/usr/bin/creativecraft" && test -x "$pkgdir/usr/bin/creativecraft-cli"
+            test -f "$pkgdir/usr/share/applications/org.creativecraft.CreativeCraft.desktop"
+          done
+          cp aur/PKGBUILD creativecraft-bin.PKGBUILD
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -245,7 +252,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: aur
-          path: aur/PKGBUILD
+          include-hidden-files: true
+          path: |
+            aur/PKGBUILD
+            aur/.SRCINFO
 
   aur-publish:
     name: Publish to the AUR
@@ -264,12 +274,25 @@ jobs:
           name: aur
           path: aur
 
-      - uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+      - name: Push to aur.archlinux.org
         if: env.HAS_AUR_KEY == 'true'
-        with:
-          pkgname: creativecraft-bin
-          pkgbuild: aur/PKGBUILD
-          commit_username: ${{ vars.AUR_USERNAME || 'CreativeCraft' }}
-          commit_email: ${{ vars.AUR_EMAIL || 'bhima.work@gmail.com' }}
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: Update to ${{ env.TAG }}
+        shell: bash
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME || 'CreativeCraft' }}
+          AUR_EMAIL: ${{ vars.AUR_EMAIL || 'bhima.work@gmail.com' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          # cloning a name that doesn't exist yet creates the package on first push
+          git clone ssh://aur@aur.archlinux.org/creativecraft-bin.git aur-repo
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git config user.name "$AUR_USERNAME" && git config user.email "$AUR_EMAIL"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then echo "AUR already up to date"; exit 0; fi
+          git commit -m "Update to ${TAG#v}"
+          git push origin HEAD:master
