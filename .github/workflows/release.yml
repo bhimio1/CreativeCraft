@@ -1,0 +1,147 @@
+name: Release
+
+# Push a tag like v0.1.3 (or run manually with a tag) to build every platform and publish a
+# GitHub release. Asset names follow `creativecraft-<version>-<os>-<arch>.<ext>`, the same
+# convention the hub's own installer reads.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.3); created from the selected branch if missing"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, asset: linux-x86_64, ext: tar.gz }
+          - { name: Linux aarch64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, asset: linux-aarch64, ext: tar.gz }
+          - { name: macOS universal, os: macos-latest, target: universal, asset: macos-universal, ext: zip }
+          - { name: Windows x64, os: windows-latest, target: x86_64-pc-windows-msvc, asset: windows-x64, ext: zip }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target == 'universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.asset }}
+
+      - name: Linux window-system headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      - name: Version from tag
+        shell: bash
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Build
+        if: matrix.target != 'universal'
+        shell: bash
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p creativecraft -p creativecraft-cli
+          mkdir -p out
+          cp target/${{ matrix.target }}/release/creativecraft${{ runner.os == 'Windows' && '.exe' || '' }} out/
+          cp target/${{ matrix.target }}/release/creativecraft-cli${{ runner.os == 'Windows' && '.exe' || '' }} out/
+
+      - name: Build (macOS universal)
+        if: matrix.target == 'universal'
+        shell: bash
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --target $t -p creativecraft -p creativecraft-cli
+          done
+          mkdir -p out
+          for b in creativecraft creativecraft-cli; do
+            lipo -create -output out/$b target/aarch64-apple-darwin/release/$b target/x86_64-apple-darwin/release/$b
+          done
+          # a minimal app bundle so the hub opens like a normal Mac app (unsigned)
+          app=out/CreativeCraft.app/Contents
+          mkdir -p "$app/MacOS" "$app/Resources"
+          cp out/creativecraft out/creativecraft-cli "$app/MacOS/"
+          cat > "$app/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>CreativeCraft</string>
+            <key>CFBundleIdentifier</key><string>org.creativecraft.CreativeCraft</string>
+            <key>CFBundleExecutable</key><string>creativecraft</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+          </dict></plist>
+          EOF
+          rm out/creativecraft
+
+      - name: Package
+        shell: bash
+        run: |
+          name=creativecraft-${VERSION}-${{ matrix.asset }}
+          mkdir -p "dist/$name"
+          cp -R out/. "dist/$name/"
+          cp README.md NOTICE LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          cd dist
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            if [ "$RUNNER_OS" = "Windows" ]; then 7z a -tzip "$name.zip" "$name" > /dev/null; else zip -qry "$name.zip" "$name"; fi
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          if command -v sha256sum >/dev/null; then sha256sum "$name.${{ matrix.ext }}" > "$name.${{ matrix.ext }}.sha256"; else shasum -a 256 "$name.${{ matrix.ext }}" > "$name.${{ matrix.ext }}.sha256"; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd assets && cat *.sha256 > SHA256SUMS && ls -la
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: CreativeCraft ${{ env.TAG }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            Pre-alpha preview build of CreativeCraft: one home for open-source creative apps, with cloud sync and an AI assistant that drives the apps over MCP.
+
+            **Downloads:** pick the archive for your system below, unpack it, and run `creativecraft` (or `CreativeCraft.app` on macOS). `creativecraft-cli` is the command-line version and the MCP server.
+
+            - macOS builds are unsigned: right-click the app and choose **Open** the first time.
+            - Windows may show a SmartScreen warning for unsigned apps: choose **More info → Run anyway**.
+            - Verify downloads against `SHA256SUMS`.
+
+            This is a pitch build that includes ArtCraft branding; see NOTICE.
+          files: |
+            assets/*.tar.gz
+            assets/*.zip
+            assets/SHA256SUMS
