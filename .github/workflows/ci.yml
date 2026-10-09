@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --all-targets --keep-going --message-format=short -- -D warnings 2>&1 | tee clippy.log
           status=${PIPESTATUS[0]}
           if [ $status -ne 0 ]; then
             body=$(grep -E "(error|warning)(\[|:)" clippy.log | head -c 60000 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g' | sed -e 's/\r/%0D/g')

@@ -19,7 +19,7 @@ pub fn detect_external(app: &AppSpec, host: Host) -> Option<PathBuf> {
             [Some(PathBuf::from("/Applications")), home_apps].into_iter().flatten().map(|d| d.join(bundle)).find(|p| p.is_dir())
         }
         Os::Windows => {
-            let roots = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"].iter().filter_map(|v| std::env::var_os(v)).map(PathBuf::from);
+            let roots = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"].iter().filter_map(std::env::var_os).map(PathBuf::from);
             for root in roots {
                 for d in &app.windows_dirs {
                     let base = root.join(d);
