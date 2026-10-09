@@ -11,6 +11,14 @@ Pure Rust, built the same way as the Craft apps: a layered Cargo workspace, a na
 window on wgpu (no Electron, Tauri or webview), a headless CLI, and every action going through one
 command registry, so anything you can click, an agent can do.
 
+<p><img src="docs/preview/apps.png" width="49%"> <img src="docs/preview/assistant.png" width="49%"></p>
+
+> Previews are rendered from the UI's layout and colours by `docs/preview/render.py`; the real
+> window is drawn by egui and differs in font rendering details.
+
+> **Pitch build:** shows the ArtCraft logo and the Craft app icons for a presentation to the
+> ArtCraft Team. See [NOTICE](NOTICE) before distributing.
+
 > Status: **pre-alpha scaffold.** Architecture, sync engine, installer, Drive backend and MCP hub
 > are in place with tests; see [ROADMAP.md](ROADMAP.md) for what's next.
 

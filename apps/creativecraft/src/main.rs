@@ -32,7 +32,8 @@ fn main() -> std::process::ExitCode {
             .with_title("CreativeCraft")
             .with_inner_size([1080.0, 720.0])
             .with_min_inner_size([760.0, 480.0])
-            .with_app_id(APP_ID),
+            .with_app_id(APP_ID)
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../../../assets/brand/artcraft-mark.png")).unwrap_or_default()),
         ..Default::default()
     };
     let started = eframe::run_native(

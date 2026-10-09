@@ -41,6 +41,7 @@ directories = "6"
 open = "5"
 eframe = { version = "0.36", default-features = false }
 egui = "0.36"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

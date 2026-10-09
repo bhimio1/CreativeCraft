@@ -6,9 +6,18 @@ Licensed under the MIT License or the Apache License, Version 2.0, at your optio
 CreativeCraft is an independent project. It is not affiliated with, endorsed by, or sponsored by the
 ArtCraft Team, Adobe, the Blender Foundation, Google, or any other project or company it mentions.
 
+PITCH BUILD: ArtCraft branding
+This build shows the ArtCraft wordmark and mark (assets/brand/) and the Craft apps' own app icons
+(assets/apps/) because it is being presented to the ArtCraft Team. The ArtCraft marks are ArtCraft
+Team trademarks under the terms in assets/brand/LICENSE-brand.txt, which do not cover this
+project. Do not publish or distribute builds containing assets/brand/ unless the ArtCraft Team
+has given written permission; to strip them, delete assets/brand/ usage in
+crates/ui-egui/src/assets.rs and apps/creativecraft/src/main.rs.
+
 App names in catalog/apps.toml (PhotoCraft, VectorCraft, Blender, Krita, …) are used only to
 identify those apps so users can find, install and launch them. They remain the property of their
-owners. CreativeCraft bundles none of those apps' code, binaries, logos or artwork: Craft apps are
+owners. Apart from the pitch-build branding above, CreativeCraft bundles none of those apps' code,
+binaries, logos or artwork: Craft apps are
 downloaded from their own GitHub releases at the user's request, and other apps are only detected
 and linked to their official download pages.
 

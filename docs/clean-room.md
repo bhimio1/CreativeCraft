@@ -38,9 +38,17 @@ advice; have a lawyer review before a commercial launch.
 - Naming other apps to identify them ("Install PhotoCraft", "Open Blender") is nominative use and
   fine. Don't imply endorsement (see NOTICE).
 
+## Pitch build branding
+
+The current build uses the ArtCraft wordmark, mark and the Craft app icons, for a presentation to
+the ArtCraft Team. That use needs their written permission before any public release (see NOTICE).
+
 ## Trade dress: our own design
 
-- Don't imitate a competitor's distinctive launcher layout, colour scheme, iconography or wording.
+- The layout follows the common creative-suite launcher pattern (top bar with search, short
+  sidebar, a list of apps with one Open/Install button each), which is a generic convention.
+  Don't copy a competitor's distinctive elements on top of that: its logo, app-icon system,
+  brand colours, typeface, illustrations or wording.
   CreativeCraft's palette, layout and copy live in `crates/ui-egui/src/theme.rs` and are our own.
 
 ## Cloud and privacy

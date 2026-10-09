@@ -93,12 +93,12 @@ impl CreativeCraftApp {
         let now = ui.input(|i| i.time);
         let status = self.backend_status(now);
 
-        // ── header: backend picker and its state
+        // ── header: title, the agent in use (quiet), new chat
         ui.horizontal(|ui| {
-            ui.heading("AI chat");
-            ui.add_space(12.0);
+            ui.label(RichText::new("Assistant").size(18.0).strong());
+            ui.add_space(10.0);
             let before = self.draft.agent.backend;
-            egui::ComboBox::from_id_salt("backend").selected_text(before.name()).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("backend").selected_text(RichText::new(before.name()).color(t.muted)).show_ui(ui, |ui| {
                 for b in Backend::ALL {
                     ui.selectable_value(&mut self.draft.agent.backend, b, b.name());
                 }
@@ -108,37 +108,31 @@ impl CreativeCraftApp {
             }
             match &status {
                 BackendStatus::Found(p) => {
-                    ui.label(RichText::new("● ready").color(t.ok)).on_hover_text(p.display().to_string());
+                    ui.label(RichText::new("●").size(10.0).color(t.ok)).on_hover_text(format!("Ready: {}", p.display()));
                 }
                 BackendStatus::NeedsSetup(_, why) => {
-                    ui.label(RichText::new(format!("needs setup: {why}")).color(t.accent));
-                    if ui.add_enabled(self.busy.is_none(), theme::primary("Set up")).clicked() {
-                        self.run("Set up chat", Command::SetupAgent);
+                    if ui.add_enabled(self.busy.is_none(), theme::secondary("Set up")).on_hover_text(why.as_str()).clicked() {
+                        self.run("Set up assistant", Command::SetupAgent);
                         self.chat.status = None;
                     }
                 }
                 BackendStatus::Missing if self.draft.agent.backend == Backend::Custom => {
-                    let ok = !self.draft.agent.custom_command.trim().is_empty();
-                    ui.label(RichText::new(if ok { "● custom command" } else { "set a command in Settings" }).color(if ok { t.ok } else { t.muted }));
+                    if self.draft.agent.custom_command.trim().is_empty() {
+                        ui.label(RichText::new("Set a command in Settings").size(12.0).color(t.muted));
+                    }
                 }
                 BackendStatus::Missing => {
-                    ui.label(RichText::new("not installed").color(t.danger));
-                    ui.hyperlink_to("Get it ↗", self.draft.agent.backend.homepage());
+                    ui.hyperlink_to(RichText::new("Not installed · Get it").size(12.0), self.draft.agent.backend.homepage());
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add_enabled(self.chat.running.is_none(), egui::Button::new("New chat")).clicked() {
+                if !self.chat.convo.messages.is_empty() && ui.add_enabled(self.chat.running.is_none(), theme::secondary("New chat")).clicked() {
                     self.chat.convo = agent::Conversation::default();
                     let _ = self.chat.convo.save(&self.chat.file);
                 }
             });
         });
-        ui.label(
-            RichText::new("Your own agent CLI does the thinking; CreativeCraft gives it your apps as tools. Nothing here needs an API key.")
-                .size(12.0)
-                .color(t.muted),
-        );
-        ui.add_space(8.0);
+        ui.add_space(12.0);
 
         // ── transcript
         let input_h = 96.0;
@@ -146,8 +140,10 @@ impl CreativeCraftApp {
         egui::ScrollArea::vertical().id_salt("chat_log").stick_to_bottom(true).auto_shrink(false).max_height(list_h).show(ui, |ui| {
             ui.set_width(ui.available_width());
             if self.chat.convo.messages.is_empty() {
-                ui.add_space(24.0);
-                ui.label(RichText::new("Try asking:").color(t.muted));
+                ui.add_space(40.0);
+                ui.label(RichText::new("What would you like to make?").size(22.0).strong());
+                ui.label(RichText::new("The assistant can install, open and work inside your apps.").color(t.muted));
+                ui.add_space(12.0);
                 for s in SUGGESTIONS {
                     if ui.add(egui::Button::new(RichText::new(*s).color(t.ink)).fill(t.card)).clicked() {
                         self.chat.input = (*s).to_string();
