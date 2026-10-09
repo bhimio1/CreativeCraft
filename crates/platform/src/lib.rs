@@ -8,6 +8,9 @@
 //! admin rights, into its own folder, so a plain archive is what it wants.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+mod host;
+pub use host::{HostCommand, find_on_path, in_flatpak, stop};
+
 /// Operating systems the hub runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Os {

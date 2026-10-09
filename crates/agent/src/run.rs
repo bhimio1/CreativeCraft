@@ -1,6 +1,7 @@
 use crate::{AgentError, ChatEvent, Parser};
+use creativecraft_platform::HostCommand;
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 
@@ -12,10 +13,12 @@ pub struct Running {
 }
 
 impl Running {
-    pub(crate) fn spawn(mut cmd: Command, mut parser: Parser) -> Result<Running, AgentError> {
-        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        // ask CLIs for plain, uncoloured, non-interactive output
+    pub(crate) fn spawn(mut cmd: HostCommand, mut parser: Parser) -> Result<Running, AgentError> {
+        // ask CLIs for plain, uncoloured, non-interactive output (set on the HostCommand, so the
+        // variables reach the host process inside Flatpak too)
         cmd.env("NO_COLOR", "1").env("CI", "1").env("TERM", "dumb");
+        let mut cmd = cmd.into_std();
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -71,7 +74,7 @@ impl Running {
     /// Stop the turn (the backend keeps whatever it already saved of the session).
     pub fn cancel(&self) {
         if let Ok(mut c) = self.child.lock() {
-            let _ = c.kill();
+            creativecraft_platform::stop(&mut c);
         }
     }
 }

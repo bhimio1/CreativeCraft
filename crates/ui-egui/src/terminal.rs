@@ -37,13 +37,23 @@ impl Terminal {
         let (rows, cols) = (24, 80);
         let pair =
             native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("couldn't open a terminal: {e}"))?;
-        let mut cmd = CommandBuilder::new(&spec.program);
-        cmd.args(&spec.args);
-        cmd.cwd(&spec.cwd);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env_remove("NO_COLOR");
+        // the program runs on the host; inside Flatpak that's `flatpak-spawn --host …`, with the
+        // environment and directory as its flags
+        let mut host = creativecraft_platform::HostCommand::new(&spec.program);
+        host.args(&spec.args).current_dir(&spec.cwd).env("TERM", "xterm-256color").env("COLORTERM", "truecolor");
         for (k, v) in &spec.env {
+            host.env(k, v);
+        }
+        let (program, args) = host.argv();
+        let mut cmd = CommandBuilder::new(&program);
+        cmd.args(&args);
+        if let Some(dir) = host.outer_cwd() {
+            cmd.cwd(dir);
+        }
+        if !creativecraft_platform::in_flatpak() {
+            cmd.env_remove("NO_COLOR");
+        }
+        for (k, v) in host.outer_env() {
             cmd.env(k, v);
         }
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("couldn't start {}: {e}", spec.program))?;

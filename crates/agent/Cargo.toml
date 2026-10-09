@@ -10,6 +10,7 @@ description = "CreativeCraft L2: the AI assistant, an external agent CLI (Claude
 workspace = true
 
 [dependencies]
+creativecraft-platform = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

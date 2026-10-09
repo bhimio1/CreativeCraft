@@ -10,6 +10,7 @@ description = "CreativeCraft L4: the egui shell. Thin: every action goes through
 workspace = true
 
 [dependencies]
+creativecraft-platform = { workspace = true }
 creativecraft-engine = { workspace = true }
 creativecraft-install = { workspace = true }
 creativecraft-catalog = { workspace = true }

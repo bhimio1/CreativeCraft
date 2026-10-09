@@ -66,6 +66,9 @@ pub struct AppSpec {
     pub mac_bundle: Option<String>,
     #[serde(default)]
     pub windows_dirs: Vec<String>,
+    /// Its Flathub app id, to find a Flatpak install (`exports/bin/<id>`).
+    #[serde(default)]
+    pub flatpak: Option<String>,
 }
 
 impl AppSpec {

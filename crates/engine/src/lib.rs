@@ -19,7 +19,7 @@ use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, Goo
 use creativecraft_install::{HubDirs, InstallError, Installer, Progress, Status};
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::process::{Child, Command as Proc, Stdio};
+use std::process::{Child, Stdio};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -247,7 +247,9 @@ impl Session {
     /// Start an MCP server for a catalog app or a user-configured one.
     pub fn spawn_mcp(&self, id: &str) -> Result<Child, EngineError> {
         if let Some(c) = self.settings.custom_mcp.iter().find(|c| c.id == id) {
-            return Ok(Proc::new(&c.command).args(&c.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?);
+            let mut cmd = creativecraft_platform::HostCommand::new(&c.command);
+            cmd.args(&c.args);
+            return Ok(cmd.into_std().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?);
         }
         let app = self.app(id)?;
         Ok(self.installer.spawn_mcp(&app)?)

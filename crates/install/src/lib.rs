@@ -31,8 +31,9 @@ pub use source::Source;
 
 use creativecraft_catalog::{AppSpec, Kind};
 use creativecraft_platform::Host;
+use creativecraft_platform::HostCommand;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstallError {
@@ -241,12 +242,12 @@ impl Installer {
                 let path = detect_external(app, self.host).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
                 if path.extension().is_some_and(|e| e == "app") {
                     // a macOS bundle: let LaunchServices start it
-                    let mut c = Command::new("open");
-                    c.arg("-a").arg(&path);
+                    let mut c = HostCommand::new("open");
+                    c.arg("-a").arg(&path).detached();
                     if !files.is_empty() {
                         c.arg("--args").args(files);
                     }
-                    c.spawn()?;
+                    c.into_std().spawn()?;
                     Ok(())
                 } else {
                     spawn_detached(&path, files)
@@ -260,7 +261,9 @@ impl Installer {
         let i = self.registry.get(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
         let cli = i.cli.as_ref().ok_or_else(|| InstallError::MissingExe { app: app.name.clone(), exe: "cli".into() })?;
         let args = app.mcp.clone().unwrap_or_default();
-        Ok(Command::new(cli).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?)
+        let mut c = HostCommand::new(cli);
+        c.args(args);
+        Ok(c.into_std().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?)
     }
 
     /// Open the official download page of an external app in the browser.
@@ -275,13 +278,14 @@ impl Installer {
     }
 }
 
+/// Start an app window that keeps running on its own (also after the hub quits).
 fn spawn_detached(exe: &Path, files: &[PathBuf]) -> Result<(), InstallError> {
-    let mut c = Command::new(exe);
-    c.args(files).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut c = HostCommand::new(exe);
+    c.args(files).detached();
     if let Some(dir) = exe.parent() {
         c.current_dir(dir);
     }
-    c.spawn()?;
+    c.into_std().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
     Ok(())
 }
 

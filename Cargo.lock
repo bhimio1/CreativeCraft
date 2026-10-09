@@ -818,6 +818,7 @@ dependencies = [
 name = "creativecraft-agent"
 version = "0.1.5"
 dependencies = [
+ "creativecraft-platform",
  "log",
  "serde",
  "serde_json",
@@ -871,6 +872,7 @@ dependencies = [
  "creativecraft-cloud",
  "creativecraft-install",
  "creativecraft-mcp",
+ "creativecraft-platform",
  "log",
  "serde",
  "serde_json",
@@ -901,6 +903,7 @@ dependencies = [
 name = "creativecraft-mcp"
 version = "0.1.5"
 dependencies = [
+ "creativecraft-platform",
  "log",
  "serde_json",
  "thiserror 2.0.21",
@@ -921,6 +924,7 @@ dependencies = [
  "creativecraft-catalog",
  "creativecraft-engine",
  "creativecraft-install",
+ "creativecraft-platform",
  "egui",
  "image",
  "log",

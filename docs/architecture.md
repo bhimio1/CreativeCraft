@@ -108,6 +108,20 @@ CLI and the agent's hub process can each start one.
 in `opens`; `projects::thumbnail` reads a preview from the file itself with size limits. The window
 runs both on background threads and caches decoded previews by path and modification time.
 
+## Running programs (and Flatpak)
+
+Every program the hub starts (agent CLIs, app windows and MCP servers, `git`/`cargo` source
+builds, user MCP servers, the Assistant terminals) is built as a `platform::HostCommand`.
+Outside Flatpak that is exactly the `std::process::Command` it describes. Inside Flatpak
+(`FLATPAK_ID` set) it runs `flatpak-spawn --host --watch-bus [--directory=…] [--env=K=V]… <program>
+<args>`, because those programs live on the host; env and directory travel as flags since the
+outer process's would only reach `flatpak-spawn`. App windows the user opens are spawned without
+`--watch-bus` so they outlive the hub. `platform::find_on_path` asks the host's `PATH`
+(`sh -c 'command -v -- "$1"'`, cached), and `platform::stop` sends SIGTERM before SIGKILL, which
+`flatpak-spawn` can't forward. External apps installed as Flatpaks are found under
+`~/.local/share/flatpak/exports` and `/var/lib/flatpak/exports` (catalog `flatpak` id, or an
+exported desktop entry's `--command=`).
+
 ## On disk
 
 ```text

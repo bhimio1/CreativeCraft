@@ -10,6 +10,7 @@ description = "CreativeCraft L3: the Session and its command registry; every act
 workspace = true
 
 [dependencies]
+creativecraft-platform = { workspace = true }
 creativecraft-catalog = { workspace = true }
 zip = { workspace = true }
 creativecraft-install = { workspace = true }

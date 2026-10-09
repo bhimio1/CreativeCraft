@@ -3,10 +3,10 @@
 //! docs/ai-chat.md for links and for what to re-check when a CLI changes.
 
 use crate::{AgentError, LaunchSpec, McpServer, SERVER_NAME, SYSTEM_CONTEXT, SessionRequest, TurnRequest};
+use creativecraft_platform::HostCommand;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,18 +85,9 @@ impl Backend {
 }
 
 /// A binary given as a path, or looked up on `PATH` (with `.exe`/`.cmd` on Windows, since npm
-/// installs `claude.cmd`, `opencode.cmd`).
+/// installs `claude.cmd`, `opencode.cmd`). Inside Flatpak this is the host's `PATH`.
 pub(crate) fn find_binary(name: &str) -> Option<PathBuf> {
-    if name.is_empty() {
-        return None;
-    }
-    let p = Path::new(name);
-    if p.components().count() > 1 {
-        return p.is_file().then(|| p.to_path_buf());
-    }
-    let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).flat_map(|d| exts.iter().map(move |e| d.join(format!("{name}{e}")))).find(|c| c.is_file())
+    creativecraft_platform::find_on_path(name)
 }
 
 /// An argument that can never be mistaken for a flag.
@@ -123,7 +114,8 @@ fn first_turn_prompt(req: &TurnRequest) -> String {
 }
 
 /// Build the process for one turn.
-pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
+/// Build the process for one turn, to run on the host (see `creativecraft_platform::HostCommand`).
+pub(crate) fn command(req: &TurnRequest) -> Result<HostCommand, AgentError> {
     let s = req.settings;
     let kind = s.backend;
     let binary = if kind == Backend::Custom { String::new() } else { resolve_binary(s)? };
@@ -133,7 +125,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
         Backend::ClaudeCode => {
             let cfg = req.state_dir.join("claude-mcp.json");
             write_json(&cfg, &mcp_servers_json(req.hub))?;
-            let mut c = Command::new(&binary);
+            let mut c = HostCommand::new(&binary);
             c.arg("-p").arg(as_arg(req.prompt));
             c.args(["--output-format", "stream-json", "--verbose"]);
             c.arg("--mcp-config").arg(&cfg).arg("--strict-mcp-config");
@@ -155,7 +147,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
         Backend::OpenCode => {
             let cfg = req.state_dir.join("opencode.json");
             write_opencode_config(&cfg, req.hub)?;
-            let mut c = Command::new(&binary);
+            let mut c = HostCommand::new(&binary);
             c.env("OPENCODE_CONFIG", &cfg);
             c.args(["run", "--format", "json"]);
             if let Some(id) = req.session {
@@ -180,7 +172,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
             // the message goes through a file: Hermes' documented path for programmatic bodies
             let q = req.state_dir.join("hermes-query.txt");
             std::fs::write(&q, first_turn_prompt(req))?;
-            let mut c = Command::new(&binary);
+            let mut c = HostCommand::new(&binary);
             c.arg("chat").arg("--query-file").arg(&q).args(["--format", "stream-json", "--quiet"]);
             if let Some(id) = req.session {
                 c.arg("--resume").arg(id);
@@ -196,7 +188,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
         Backend::Antigravity => {
             // workspace-level config; merged so the user's own entries survive
             write_antigravity_config(req.workspace, req.hub)?;
-            let mut c = Command::new(&binary);
+            let mut c = HostCommand::new(&binary);
             c.arg("-p").arg(as_arg(&first_turn_prompt(req)));
             c.args(["--output-format", "stream-json"]);
             if let Some(id) = req.session {
@@ -215,7 +207,7 @@ pub(crate) fn command(req: &TurnRequest) -> Result<Command, AgentError> {
             let (prog, rest) = words.split_first().ok_or(AgentError::NoCustomCommand)?;
             let cfg = req.state_dir.join("mcp.json");
             write_json(&cfg, &mcp_servers_json(req.hub))?;
-            let mut c = Command::new(prog);
+            let mut c = HostCommand::new(prog);
             let mut had_prompt = false;
             for w in rest {
                 match *w {

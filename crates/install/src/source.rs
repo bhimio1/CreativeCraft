@@ -12,10 +12,11 @@
 
 use crate::{InstallError, Installed, Installer, Progress, sanitize};
 use creativecraft_catalog::AppSpec;
+use creativecraft_platform::HostCommand;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 /// How an app is installed. The default is the catalog's own releases.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +105,10 @@ fn source_key(url: &str, branch: &str) -> String {
 }
 
 fn tool(name: &str, hint: &'static str) -> Result<PathBuf, InstallError> {
+    if creativecraft_platform::in_flatpak() {
+        // git and cargo live on the host, not in the sandbox
+        return creativecraft_platform::find_on_path(name).ok_or(InstallError::MissingTool { tool: name.to_string(), hint });
+    }
     let exts: &[&str] = if cfg!(windows) { &[".exe", ""] } else { &[""] };
     let path = std::env::var_os("PATH").ok_or(InstallError::MissingTool { tool: name.to_string(), hint })?;
     std::env::split_paths(&path)
@@ -116,10 +121,11 @@ const GIT_HINT: &str = "install Git from https://git-scm.com";
 const CARGO_HINT: &str = "install Rust from https://rustup.rs";
 
 /// Run a command, sending each output line to `line`; fail with the last lines if it fails.
-fn run(mut cmd: Command, what: &str, line: &mut dyn FnMut(&str)) -> Result<(), InstallError> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+fn run(mut cmd: HostCommand, what: &str, line: &mut dyn FnMut(&str)) -> Result<(), InstallError> {
     // never stop to ask for credentials: a private fork needs the user's own git setup
     cmd.env("GIT_TERMINAL_PROMPT", "0");
+    let mut cmd = cmd.into_std();
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
     let stdout = child.stdout.take();
     let out_thread = stdout.map(|o| std::thread::spawn(move || BufReader::new(o).lines().map_while(Result::ok).collect::<Vec<_>>()));
@@ -145,7 +151,9 @@ fn run(mut cmd: Command, what: &str, line: &mut dyn FnMut(&str)) -> Result<(), I
 }
 
 fn git_output(git: &Path, dir: &Path, args: &[&str]) -> Result<String, InstallError> {
-    let out = Command::new(git).arg("-C").arg(dir).args(args).env("GIT_TERMINAL_PROMPT", "0").output()?;
+    let mut c = HostCommand::new(git);
+    c.arg("-C").arg(dir).args(args).env("GIT_TERMINAL_PROMPT", "0");
+    let out = c.into_std().output()?;
     if !out.status.success() {
         return Err(InstallError::Build(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim())));
     }
@@ -167,12 +175,12 @@ impl Installer {
         // ── fetch
         progress(Progress::Fetching);
         if checkout.join(".git").is_dir() {
-            let mut c = Command::new(&git);
+            let mut c = HostCommand::new(&git);
             c.arg("-C").arg(&checkout).args(["fetch", "--depth", "1", "origin"]);
             c.arg(if branch.is_empty() { "HEAD" } else { branch });
             run(c, "git fetch", &mut |l: &str| progress(Progress::Log(l.to_string())))?;
             // the checkout is the hub's own copy: reset it to exactly what was fetched
-            let mut c = Command::new(&git);
+            let mut c = HostCommand::new(&git);
             c.arg("-C").arg(&checkout).args(["reset", "--hard", "FETCH_HEAD"]);
             run(c, "git reset", &mut |l: &str| progress(Progress::Log(l.to_string())))?;
         } else {
@@ -180,7 +188,7 @@ impl Installer {
             if let Some(parent) = checkout.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut c = Command::new(&git);
+            let mut c = HostCommand::new(&git);
             c.args(["clone", "--depth", "1"]);
             if !branch.is_empty() {
                 c.args(["--branch", branch]);
@@ -193,7 +201,7 @@ impl Installer {
         // ── build the GUI and CLI packages (named like their executables in every Craft repo)
         let packages: Vec<&String> = [&app.gui, &app.cli].into_iter().flatten().collect();
         let build = |pkgs: &[&String], progress: &mut dyn FnMut(Progress)| -> Result<(), InstallError> {
-            let mut c = Command::new(&cargo);
+            let mut c = HostCommand::new(&cargo);
             c.current_dir(&checkout).args(["build", "--release"]).env("CARGO_TARGET_DIR", &target).env("CARGO_TERM_COLOR", "never");
             for p in pkgs {
                 c.arg("-p").arg(p.as_str());

@@ -132,7 +132,7 @@ impl Drop for Client {
         let _ = self.stdin.flush();
         std::thread::sleep(Duration::from_millis(50));
         if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
+            creativecraft_platform::stop(&mut self.child);
         }
         let _ = self.child.wait();
     }

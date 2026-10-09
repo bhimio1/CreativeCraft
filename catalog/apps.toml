@@ -7,6 +7,8 @@
 #                    Program Files) and links to the project's official download page. Use this for
 #                    apps whose licence or packaging we don't want to redistribute or re-wrap.
 #
+# `flatpak` is an external app's Flathub id, so a Flatpak install is found too.
+#
 # `bugs` is where "Report a bug" goes: release apps default to their repo's GitHub issues (pre-filled
 # with the app and system details); external apps name their project's own tracker.
 #
@@ -201,6 +203,7 @@ kind = "external"
 path_names = ["blender"]
 mac_bundle = "Blender.app"
 windows_dirs = ["Blender Foundation"]
+flatpak = "org.blender.Blender"
 license = "GPL-2.0-or-later"
 homepage = "https://www.blender.org/download/"
 opens = ["blend"]
@@ -215,6 +218,7 @@ kind = "external"
 path_names = ["krita"]
 mac_bundle = "krita.app"
 windows_dirs = ["Krita (x64)"]
+flatpak = "org.kde.krita"
 license = "GPL-3.0-or-later"
 homepage = "https://krita.org/en/download/"
 opens = ["kra", "ora"]
@@ -229,6 +233,7 @@ kind = "external"
 path_names = ["inkscape"]
 mac_bundle = "Inkscape.app"
 windows_dirs = ["Inkscape"]
+flatpak = "org.inkscape.Inkscape"
 license = "GPL-2.0-or-later"
 homepage = "https://inkscape.org/release/"
 bugs = "https://inkscape.org/report"
@@ -242,6 +247,7 @@ kind = "external"
 path_names = ["gimp", "gimp-3.0", "gimp-2.10"]
 mac_bundle = "GIMP.app"
 windows_dirs = ["GIMP 3", "GIMP 2"]
+flatpak = "org.gimp.GIMP"
 license = "GPL-3.0-or-later"
 homepage = "https://www.gimp.org/downloads/"
 opens = ["xcf"]
@@ -256,6 +262,7 @@ kind = "external"
 path_names = ["kdenlive"]
 mac_bundle = "kdenlive.app"
 windows_dirs = ["kdenlive"]
+flatpak = "org.kde.kdenlive"
 license = "GPL-3.0-or-later"
 homepage = "https://kdenlive.org/en/download/"
 opens = ["kdenlive"]
@@ -270,6 +277,7 @@ kind = "external"
 path_names = ["darktable"]
 mac_bundle = "darktable.app"
 windows_dirs = ["darktable"]
+flatpak = "org.darktable.Darktable"
 license = "GPL-3.0-or-later"
 homepage = "https://www.darktable.org/install/"
 bugs = "https://github.com/darktable-org/darktable/issues"
@@ -283,6 +291,7 @@ kind = "external"
 path_names = ["godot", "godot4"]
 mac_bundle = "Godot.app"
 windows_dirs = []
+flatpak = "org.godotengine.Godot"
 license = "MIT"
 homepage = "https://godotengine.org/download/"
 bugs = "https://github.com/godotengine/godot/issues"
