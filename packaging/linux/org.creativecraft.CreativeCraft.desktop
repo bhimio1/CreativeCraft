@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CreativeCraft
+GenericName=Creative Apps Hub
+Comment=Install, update and open open-source creative apps, sync your projects, and work with an AI assistant
+Exec=creativecraft
+Icon=org.creativecraft.CreativeCraft
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=creative;design;photo;vector;video;launcher;apps;sync;assistant;
+StartupWMClass=org.creativecraft.CreativeCraft

@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "creativecraft-engine",
  "creativecraft-ui-egui",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-agent"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "serde",
@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-catalog"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "creativecraft-engine",
  "creativecraft-install",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-cloud"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64",
  "creativecraft-sync-plan",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-engine"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "creativecraft-agent",
  "creativecraft-catalog",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-install"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "creativecraft-catalog",
  "creativecraft-platform",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-mcp"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "log",
  "serde_json",
@@ -908,15 +908,15 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-platform"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "creativecraft-sync-plan"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "creativecraft-ui-egui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "creativecraft-catalog",
  "creativecraft-engine",

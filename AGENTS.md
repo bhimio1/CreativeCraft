@@ -57,4 +57,7 @@ fails on any formatting difference and stops before building.
 2. Commit and push to `main`, and wait for CI to pass.
 3. Push a tag `vX.Y.Z` matching the version, or run **Actions → Release → Run workflow** with
    that tag. The Release workflow builds Linux (x86_64, aarch64), macOS (universal) and Windows,
-   and publishes a pre-release with the archives and `SHA256SUMS`.
+   and publishes a pre-release with the archives and `SHA256SUMS`. It also builds Flatpak bundles
+   (`packaging/flatpak/`) and an AUR `creativecraft-bin` PKGBUILD (`packaging/aur/PKGBUILD.in`),
+   test-builds the PKGBUILD against the published release, and pushes it to the AUR when the
+   `AUR_SSH_PRIVATE_KEY` secret is set.

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.creativecraft.CreativeCraft</id>
+  <name>CreativeCraft</name>
+  <summary>One home for open-source creative apps</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="org.creativecraft">
+    <name>CreativeCraft contributors</name>
+  </developer>
+  <description>
+    <p>
+      CreativeCraft installs, updates and opens the Craft apps and other open-source creative
+      tools, keeps your project files in sync through Google Drive or any synced folder, and
+      includes an assistant that drives your apps through MCP using the agent CLI you already use.
+    </p>
+    <ul>
+      <li>Install and update apps from each project's own releases, or build from source</li>
+      <li>Three-way cloud sync that never overwrites conflicting edits</li>
+      <li>One MCP server for every agent-ready app</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.creativecraft.CreativeCraft.desktop</launchable>
+  <url type="homepage">https://github.com/bhimio1/CreativeCraft</url>
+  <url type="bugtracker">https://github.com/bhimio1/CreativeCraft/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Apps</caption>
+      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/preview/apps.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Graphics</category>
+  </categories>
+  <releases>
+    <!-- the release workflow inserts the current version here -->
+  </releases>
+</component>

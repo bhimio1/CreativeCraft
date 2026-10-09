@@ -97,6 +97,15 @@ jobs:
           mkdir -p "dist/$name"
           cp -R out/. "dist/$name/"
           cp README.md NOTICE LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # desktop integration, used by the AUR and Flatpak packages and by anyone installing by hand
+            id=org.creativecraft.CreativeCraft
+            share="dist/$name/share"
+            install -Dm644 packaging/linux/$id.desktop "$share/applications/$id.desktop"
+            install -Dm644 packaging/linux/$id.metainfo.xml "$share/metainfo/$id.metainfo.xml"
+            sed -i "s|<!-- the release workflow inserts the current version here -->|<release version=\"$VERSION\" date=\"$(date -u +%F)\"/>|" "$share/metainfo/$id.metainfo.xml"
+            for s in 128 256 512; do install -Dm644 packaging/linux/icons/$s.png "$share/icons/hicolor/${s}x${s}/apps/$id.png"; done
+          fi
           cd dist
           if [ "${{ matrix.ext }}" = "zip" ]; then
             if [ "$RUNNER_OS" = "Windows" ]; then 7z a -tzip "$name.zip" "$name" > /dev/null; else zip -qry "$name.zip" "$name"; fi
@@ -113,8 +122,52 @@ jobs:
             dist/*.zip
             dist/*.sha256
 
-  release:
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}
     needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, os: ubuntu-24.04 }
+          - { arch: aarch64, os: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dl
+
+      - name: Version from tag
+        shell: bash
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Install flatpak-builder and the runtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+
+      - name: Build the bundle from the release archive
+        run: |
+          tar -xzf dl/creativecraft-${VERSION}-linux-${{ matrix.arch }}.tar.gz -C packaging/flatpak
+          mv packaging/flatpak/creativecraft-${VERSION}-linux-${{ matrix.arch }} packaging/flatpak/input
+          flatpak-builder --user --disable-rofiles-fuse --force-clean --repo=repo build packaging/flatpak/org.creativecraft.CreativeCraft.yml
+          mkdir -p dist
+          out=dist/creativecraft-${VERSION}-linux-${{ matrix.arch }}.flatpak
+          flatpak build-bundle --arch=${{ matrix.arch }} --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo repo "$out" org.creativecraft.CreativeCraft
+          (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: [build, flatpak]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -138,10 +191,85 @@ jobs:
 
             - macOS builds are unsigned: right-click the app and choose **Open** the first time.
             - Windows may show a SmartScreen warning for unsigned apps: choose **More info → Run anyway**.
+            - Linux: the `.flatpak` bundle installs with `flatpak install --user creativecraft-*.flatpak` (it pulls the Freedesktop runtime from Flathub). On Arch, install `creativecraft-bin` from the AUR, or build it from the `PKGBUILD` attached here.
             - Verify downloads against `SHA256SUMS`.
 
             This is a pitch build that includes ArtCraft branding; see NOTICE.
           files: |
             assets/*.tar.gz
             assets/*.zip
+            assets/*.flatpak
             assets/SHA256SUMS
+
+  aur:
+    name: AUR package
+    needs: release
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*
+          path: assets
+          merge-multiple: true
+
+      - name: Generate PKGBUILD
+        shell: bash
+        run: |
+          VERSION=${TAG#v}
+          sha() { cut -d' ' -f1 "assets/creativecraft-${VERSION}-linux-$1.tar.gz.sha256"; }
+          mkdir -p aur
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@SHA256_X86_64@/$(sha x86_64)/" -e "s/@SHA256_AARCH64@/$(sha aarch64)/" packaging/aur/PKGBUILD.in > aur/PKGBUILD
+          cat aur/PKGBUILD
+
+      - name: Build the package from the published release
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm --needed namcap
+          useradd -m builder
+          chown -R builder aur
+          cd aur
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          # -d: only checking that the release archive downloads, verifies and packages correctly
+          sudo -u builder makepkg -f -d --noconfirm
+          namcap PKGBUILD *.pkg.tar.zst || true
+          cp PKGBUILD ../creativecraft-bin.PKGBUILD
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: creativecraft-bin.PKGBUILD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aur
+          path: aur/PKGBUILD
+
+  aur-publish:
+    name: Publish to the AUR
+    needs: aur
+    runs-on: ubuntu-latest
+    env:
+      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - name: Skip without an AUR key
+        if: env.HAS_AUR_KEY != 'true'
+        run: echo "::notice title=AUR::Set the AUR_SSH_PRIVATE_KEY secret to publish creativecraft-bin to the AUR automatically."
+
+      - uses: actions/download-artifact@v4
+        if: env.HAS_AUR_KEY == 'true'
+        with:
+          name: aur
+          path: aur
+
+      - uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        if: env.HAS_AUR_KEY == 'true'
+        with:
+          pkgname: creativecraft-bin
+          pkgbuild: aur/PKGBUILD
+          commit_username: ${{ vars.AUR_USERNAME || 'CreativeCraft' }}
+          commit_email: ${{ vars.AUR_EMAIL || 'bhima.work@gmail.com' }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update to ${{ env.TAG }}
