@@ -1,17 +1,17 @@
 [package]
-name = "atelier-install"
+name = "creativecraft-install"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L2: per-user install, update, detect and launch of catalog apps"
+description = "CreativeCraft L2: per-user install, update, detect and launch of catalog apps"
 
 [lints]
 workspace = true
 
 [dependencies]
-atelier-platform = { workspace = true }
-atelier-catalog = { workspace = true }
+creativecraft-platform = { workspace = true }
+creativecraft-catalog = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

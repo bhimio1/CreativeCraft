@@ -1,12 +1,12 @@
 //! One sync pass between a local projects folder and a [`CloudStore`].
 //!
-//! The base snapshot lives in `<projects>/.atelier/sync-base.json` (never synced itself), tagged
+//! The base snapshot lives in `<projects>/.creativecraft/sync-base.json` (never synced itself), tagged
 //! with the store's label: pointing the folder at a different store starts from an empty base,
 //! which is safe (differences become conflict copies, never overwrites).
 
 use crate::folder::rel_path;
 use crate::{CloudError, CloudStore, md5_file};
-use atelier_sync_plan::{Action, Snapshot, is_ignored, next_base, plan};
+use creativecraft_sync_plan::{Action, Snapshot, is_ignored, next_base, plan};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -51,7 +51,7 @@ impl Report {
 }
 
 fn state_dir(root: &Path) -> PathBuf {
-    root.join(".atelier")
+    root.join(".creativecraft")
 }
 
 /// Hash every syncable file under `root`.
@@ -114,6 +114,8 @@ fn save_base(root: &Path, label: &str, base: Snapshot) -> Result<(), CloudError>
 /// next time (their base entries are left as they were).
 pub fn run(root: &Path, store: &mut dyn CloudStore, device: &str, progress: &mut dyn FnMut(usize, usize, &str)) -> Result<Report, CloudError> {
     std::fs::create_dir_all(root)?;
+    // the window, the CLI and the agent's MCP server can all start a sync: one at a time
+    let _lock = SyncLock::take(root)?;
     let label = store.label();
     let local = local_snapshot(root)?;
     let remote: Snapshot = store.list()?.into_iter().map(|f| (f.path, f.md5)).collect();
@@ -148,6 +150,41 @@ pub fn run(root: &Path, store: &mut dyn CloudStore, device: &str, progress: &mut
     }
     save_base(root, &label, nb)?;
     Ok(report)
+}
+
+/// A lock file in the state folder; one older than 15 minutes is treated as left over from a crash.
+struct SyncLock(PathBuf);
+
+impl SyncLock {
+    fn take(root: &Path) -> Result<SyncLock, CloudError> {
+        let dir = state_dir(root);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("sync.lock");
+        for _ in 0..2 {
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(_) => return Ok(SyncLock(path)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = std::fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age > std::time::Duration::from_secs(15 * 60));
+                    if !stale {
+                        return Err(CloudError::Io(std::io::Error::other("a sync is already running")));
+                    }
+                    let _ = std::fs::remove_file(&path);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Err(CloudError::Io(std::io::Error::other("a sync is already running")))
+    }
+}
+
+impl Drop for SyncLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 fn apply(root: &Path, store: &mut dyn CloudStore, local: &Snapshot, a: &Action, report: &mut Report) -> Result<(), CloudError> {
@@ -202,7 +239,7 @@ mod tests {
     use crate::FolderStore;
 
     fn tmp(name: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("atelier-sync-{name}-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("creativecraft-sync-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p

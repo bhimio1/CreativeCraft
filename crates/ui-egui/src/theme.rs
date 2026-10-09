@@ -1,4 +1,4 @@
-//! Atelier's own look: warm paper, ink, and a terracotta accent. Original palette and layout.
+//! CreativeCraft's own look: warm paper, ink, and a terracotta accent. Original palette and layout.
 
 use egui::{Color32, RichText};
 
@@ -14,6 +14,7 @@ pub struct Tokens {
     pub accent_soft: Color32,
     pub chip: Color32,
     pub danger: Color32,
+    pub ok: Color32,
 }
 
 impl Tokens {
@@ -29,6 +30,7 @@ impl Tokens {
             accent_soft: Color32::from_rgb(0x4a, 0x2e, 0x22),
             chip: Color32::from_rgb(0x30, 0x2c, 0x28),
             danger: Color32::from_rgb(0xe5, 0x6b, 0x6b),
+            ok: Color32::from_rgb(0x8c, 0xc4, 0x8a),
         }
     }
 }

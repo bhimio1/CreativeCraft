@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-/// The hub's folders. `ATELIER_HOME` puts everything under one folder (tests, portable installs).
+/// The hub's folders. `CREATIVECRAFT_HOME` puts everything under one folder (tests, portable installs).
 #[derive(Debug, Clone)]
 pub struct HubDirs {
     data: PathBuf,
@@ -9,10 +9,10 @@ pub struct HubDirs {
 
 impl HubDirs {
     pub fn discover() -> Option<HubDirs> {
-        if let Some(home) = std::env::var_os("ATELIER_HOME") {
+        if let Some(home) = std::env::var_os("CREATIVECRAFT_HOME") {
             return Some(HubDirs::under(Path::new(&home)));
         }
-        let p = directories::ProjectDirs::from("org", "Atelier", "Atelier")?;
+        let p = directories::ProjectDirs::from("org", "CreativeCraft", "CreativeCraft")?;
         Some(HubDirs { data: p.data_dir().to_path_buf(), config: p.config_dir().to_path_buf() })
     }
 

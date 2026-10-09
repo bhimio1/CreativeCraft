@@ -24,8 +24,8 @@ pub use external::detect_external;
 pub use github::{Asset, Release};
 pub use registry::{Installed, Registry};
 
-use atelier_catalog::{AppSpec, Kind};
-use atelier_platform::Host;
+use creativecraft_catalog::{AppSpec, Kind};
+use creativecraft_platform::Host;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
@@ -113,7 +113,7 @@ impl Installer {
     pub fn update_available(&self, app: &AppSpec) -> Result<Option<String>, InstallError> {
         let Some(have) = self.registry.get(&app.id) else { return Ok(None) };
         let latest = self.latest(app)?;
-        Ok((atelier_platform::cmp_versions(&latest.tag, &have.version).is_gt()).then_some(latest.tag))
+        Ok((creativecraft_platform::cmp_versions(&latest.tag, &have.version).is_gt()).then_some(latest.tag))
     }
 
     /// Install (or update to) the latest release. Older versions are removed after the new one is
@@ -126,7 +126,7 @@ impl Installer {
         let release = self.latest(app)?;
         let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
         let picked =
-            atelier_platform::pick_asset(&names, self.host).ok_or_else(|| InstallError::NoAsset { app: app.name.clone(), tag: release.tag.clone() })?;
+            creativecraft_platform::pick_asset(&names, self.host).ok_or_else(|| InstallError::NoAsset { app: app.name.clone(), tag: release.tag.clone() })?;
         let asset = release.assets.iter().find(|a| a.name == picked).ok_or_else(|| InstallError::Archive("asset vanished".into()))?;
 
         std::fs::create_dir_all(self.dirs.downloads())?;

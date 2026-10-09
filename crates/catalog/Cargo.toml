@@ -1,10 +1,10 @@
 [package]
-name = "atelier-catalog"
+name = "creativecraft-catalog"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L1: the app catalog (which apps exist, where they come from, how to drive them)"
+description = "CreativeCraft L1: the app catalog (which apps exist, where they come from, how to drive them)"
 
 [lints]
 workspace = true

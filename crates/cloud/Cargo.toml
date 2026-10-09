@@ -1,16 +1,16 @@
 [package]
-name = "atelier-cloud"
+name = "creativecraft-cloud"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L2: cloud saves: storage backends (Google Drive, any local/synced folder) and the sync executor"
+description = "CreativeCraft L2: cloud saves: storage backends (Google Drive, any local/synced folder) and the sync executor"
 
 [lints]
 workspace = true
 
 [dependencies]
-atelier-sync-plan = { workspace = true }
+creativecraft-sync-plan = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

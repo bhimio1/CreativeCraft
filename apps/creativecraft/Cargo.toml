@@ -1,17 +1,17 @@
 [package]
-name = "atelier"
+name = "creativecraft"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier desktop hub (eframe/wgpu)"
+description = "CreativeCraft desktop hub (eframe/wgpu)"
 
 [lints]
 workspace = true
 
 [dependencies]
-atelier-engine = { workspace = true }
-atelier-ui-egui = { workspace = true }
+creativecraft-engine = { workspace = true }
+creativecraft-ui-egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
 egui = { workspace = true }
 log = { workspace = true }

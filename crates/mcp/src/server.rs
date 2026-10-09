@@ -87,8 +87,8 @@ impl<B: HubBackend> HubServer<B> {
                 Ok(json!({
                     "protocolVersion": v,
                     "capabilities": { "tools": { "listChanged": true } },
-                    "serverInfo": { "name": "atelier-hub", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": "Atelier is a hub for creative apps. Call hub_list_apps first. To work inside an app, call app_tools with its id; its tools then appear as <app>__<tool>. Files are the user's: prefer saving new versions over overwriting.",
+                    "serverInfo": { "name": "creativecraft-hub", "version": env!("CARGO_PKG_VERSION") },
+                    "instructions": "CreativeCraft is a hub for creative apps. Call hub_list_apps first. To work inside an app, call app_tools with its id; its tools then appear as <app>__<tool>. Files are the user's: prefer saving new versions over overwriting.",
                 }))
             }
             "ping" => Ok(json!({})),

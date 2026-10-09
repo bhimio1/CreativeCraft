@@ -1,4 +1,4 @@
-# Atelier app catalog.
+# CreativeCraft app catalog.
 #
 # kind = "release":  the hub downloads the app's portable archive straight from the project's own
 #                    GitHub releases (it never re-hosts anyone's binaries), unpacks it per-user and

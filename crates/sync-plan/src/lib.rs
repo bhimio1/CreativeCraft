@@ -127,7 +127,7 @@ pub fn next_base(local: &Snapshot, remote: &Snapshot, actions: &[Action]) -> Sna
     next
 }
 
-/// `art/poster.pcraft` → `art/poster (cloud copy from laptop).pcraft`, numbered if taken.
+/// `art/poster.pcraft` → `art/poster (cloud copy for laptop).pcraft`, numbered if taken.
 pub fn conflict_name(path: &str, device: &str, local: &Snapshot, remote: &Snapshot) -> String {
     let (dir, file) = match path.rfind('/') {
         Some(i) => (&path[..=i], &path[i + 1..]),
@@ -153,7 +153,7 @@ pub fn conflict_name(path: &str, device: &str, local: &Snapshot, remote: &Snapsh
 /// Paths that should never be synced: OS litter, editor temp files, the hub's own state.
 pub fn is_ignored(rel: &str) -> bool {
     let name = rel.rsplit('/').next().unwrap_or(rel);
-    rel.split('/').any(|seg| seg == ".atelier" || seg == ".git")
+    rel.split('/').any(|seg| seg == ".creativecraft" || seg == ".agents" || seg == ".git")
         || matches!(name, ".DS_Store" | "Thumbs.db" | "desktop.ini")
         || name.starts_with("~$")
         || name.starts_with(".~lock.")
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn ignored_paths() {
         assert!(is_ignored("x/.DS_Store"));
-        assert!(is_ignored(".atelier/state.json"));
+        assert!(is_ignored(".creativecraft/state.json"));
         assert!(is_ignored("doc/~$report.docx"));
         assert!(is_ignored("big.psd.part"));
         assert!(!is_ignored("art/poster.pcraft"));

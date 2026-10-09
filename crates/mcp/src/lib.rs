@@ -5,7 +5,7 @@
 //!
 //! - [`Client`]: drives one such server (initialize, `tools/list`, `tools/call`);
 //! - [`HubServer`]: the hub's own stdio MCP server. An agent (Claude Desktop, Claude Code, any MCP
-//!   host) connects to **one** server, `atelier-cli mcp`, and gets hub tools (list / install /
+//!   host) connects to **one** server, `creativecraft-cli mcp`, and gets hub tools (list / install /
 //!   launch apps, sync projects) plus every running app's tools, namespaced `<app>__<tool>`. App
 //!   servers start lazily, the first time the agent asks for one.
 //!

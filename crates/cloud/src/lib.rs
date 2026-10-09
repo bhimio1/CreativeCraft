@@ -4,12 +4,12 @@
 //! Two backends ship:
 //!
 //! - [`GoogleDrive`]: Drive REST v3 with the narrow `drive.file` scope (the hub can only see files
-//!   it created, never the rest of the user's Drive), files kept under an "Atelier Projects" folder
+//!   it created, never the rest of the user's Drive), files kept under an "CreativeCraft Projects" folder
 //!   that mirrors the local folder tree.
 //! - [`FolderStore`]: any folder, including one kept in sync by a desktop client (Google Drive for
 //!   desktop, Dropbox, OneDrive, Nextcloud, Syncthing…). Also what the tests use.
 //!
-//! [`sync`] runs one sync pass using the planner in `atelier-sync-plan`.
+//! [`sync`] runs one sync pass using the planner in `creativecraft-sync-plan`.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod folder;
@@ -17,7 +17,7 @@ mod gdrive;
 mod oauth;
 pub mod sync;
 
-pub use atelier_sync_plan::Action;
+pub use creativecraft_sync_plan::Action;
 pub use folder::FolderStore;
 pub use gdrive::GoogleDrive;
 pub use oauth::{GoogleClient, Token};

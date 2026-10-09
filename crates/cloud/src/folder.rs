@@ -2,7 +2,7 @@ use crate::{CloudError, CloudStore, RemoteFile, md5_file};
 use std::path::{Path, PathBuf};
 
 /// Cloud saves into a plain folder (often one a desktop sync client mirrors to the cloud).
-/// Trashed files go to `<root>/.atelier-trash/<timestamp>/…`.
+/// Trashed files go to `<root>/.creativecraft-trash/<timestamp>/…`.
 pub struct FolderStore {
     root: PathBuf,
 }
@@ -45,7 +45,7 @@ impl CloudStore for FolderStore {
             std::fs::create_dir_all(d)?;
         }
         let mut tmp_name = dest.file_name().unwrap_or_default().to_os_string();
-        tmp_name.push(".atelier.part");
+        tmp_name.push(".creativecraft.part");
         let tmp = dest.with_file_name(tmp_name);
         std::fs::copy(src, &tmp)?;
         std::fs::rename(tmp, dest)?;
@@ -55,7 +55,7 @@ impl CloudStore for FolderStore {
     fn trash(&mut self, path: &str) -> Result<(), CloudError> {
         let src = self.abs(path);
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let dest = self.root.join(".atelier-trash").join(stamp.to_string()).join(path);
+        let dest = self.root.join(".creativecraft-trash").join(stamp.to_string()).join(path);
         if let Some(d) = dest.parent() {
             std::fs::create_dir_all(d)?;
         }
@@ -70,7 +70,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<RemoteFile>) -> Result<(), CloudE
         let p = e.path();
         let ft = e.file_type()?;
         let rel = rel_path(root, &p);
-        if rel.starts_with(".atelier-trash") || atelier_sync_plan::is_ignored(&rel) {
+        if rel.starts_with(".creativecraft-trash") || creativecraft_sync_plan::is_ignored(&rel) {
             continue;
         }
         if ft.is_dir() {

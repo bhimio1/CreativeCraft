@@ -1,3 +1,4 @@
+use creativecraft_agent::AgentSettings;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -35,22 +36,31 @@ pub struct Settings {
     /// Sync automatically every N minutes while the hub is open (0 = only on demand).
     pub auto_sync_minutes: u32,
     pub custom_mcp: Vec<CustomMcp>,
+    /// The AI chat: which agent CLI runs it, and how.
+    pub agent: AgentSettings,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
         let device = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_else(|_| "this computer".into());
-        Settings { projects_dir: home.join("Atelier Projects"), cloud: CloudChoice::Off, device_name: device, auto_sync_minutes: 10, custom_mcp: Vec::new() }
+        Settings {
+            projects_dir: home.join("CreativeCraft Projects"),
+            cloud: CloudChoice::Off,
+            device_name: device,
+            auto_sync_minutes: 10,
+            custom_mcp: Vec::new(),
+            agent: AgentSettings::default(),
+        }
     }
 }
 
 impl Settings {
     /// Missing file → defaults. Environment overrides for the Google client make CI and packaging
-    /// easy: `ATELIER_GOOGLE_CLIENT_ID` / `ATELIER_GOOGLE_CLIENT_SECRET`.
+    /// easy: `CREATIVECRAFT_GOOGLE_CLIENT_ID` / `CREATIVECRAFT_GOOGLE_CLIENT_SECRET`.
     pub fn load(path: &Path) -> Settings {
         let mut s: Settings = std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        if let (Ok(id), Ok(secret)) = (std::env::var("ATELIER_GOOGLE_CLIENT_ID"), std::env::var("ATELIER_GOOGLE_CLIENT_SECRET"))
+        if let (Ok(id), Ok(secret)) = (std::env::var("CREATIVECRAFT_GOOGLE_CLIENT_ID"), std::env::var("CREATIVECRAFT_GOOGLE_CLIENT_SECRET"))
             && matches!(s.cloud, CloudChoice::Off)
         {
             s.cloud = CloudChoice::GoogleDrive { client_id: id, client_secret: secret };

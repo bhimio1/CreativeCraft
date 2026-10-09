@@ -1,0 +1,125 @@
+//! The AI chat (L2).
+//!
+//! CreativeCraft does not ship its own model client. The chat is a front end for an **agent CLI the
+//! user already has** — Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or any command they
+//! configure. Each chat turn runs that CLI once, headless, in the projects folder, with exactly one
+//! MCP server configured: the hub itself (`creativecraft-cli mcp`), which fronts every installed
+//! app's own MCP server. The CLI's streamed output is parsed into [`ChatEvent`]s for the window.
+//!
+//! ```text
+//! chat window ─▶ backend CLI (one run per turn, resumes its own session)
+//!                   └─ MCP ─▶ creativecraft-cli mcp ─▶ photocraft-cli mcp, vectorcraft-cli mcp, …
+//! ```
+//!
+//! Why external backends: the user keeps their own model, account, billing and agent settings;
+//! CreativeCraft stays a thin, model-agnostic host and never handles API keys.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
+mod backend;
+mod chat;
+mod parse;
+mod run;
+
+pub use backend::{Backend, BackendStatus, hermes_snippet, setup_hermes};
+pub use chat::{Conversation, Message, Role};
+pub use parse::{ChatEvent, Parser};
+pub use run::Running;
+
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+/// Name of the hub server in every backend's MCP config. Claude Code exposes its tools as
+/// `mcp__creativecraft__<tool>`.
+pub const SERVER_NAME: &str = "creativecraft";
+
+/// Context every backend gets: as an appended system prompt where the CLI supports one, otherwise
+/// in front of the first message of a conversation.
+pub const SYSTEM_CONTEXT: &str = "You are the assistant inside CreativeCraft, a hub for open-source creative apps \
+(image, vector, video, photo, PDF, motion, layout, 3D and more). Drive the apps through the `creativecraft` MCP server: \
+call hub_list_apps to see what is installed, hub_install_app / hub_launch_app when needed, and app_tools with an app id \
+to start that app's automation and list its tools, which you then call as <app>__<tool>. \
+The current directory is the user's projects folder, synced to their cloud storage. \
+Save new versions rather than overwriting the user's files, and ask before deleting anything.";
+
+#[derive(Debug, thiserror::Error)]
+pub enum AgentError {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Json(#[from] serde_json::Error),
+    #[error("{name} was not found. Install it ({homepage}) or set its path in Settings → AI chat.")]
+    NotInstalled { name: &'static str, homepage: &'static str },
+    #[error("{0}")]
+    Setup(String),
+    #[error("a custom backend needs a command line; set one in Settings → AI chat")]
+    NoCustomCommand,
+}
+
+/// How the chat runs, saved in the hub's settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSettings {
+    pub backend: Backend,
+    /// Path or name of the CLI, if not the default (`claude`, `opencode`, `hermes`, `agy`).
+    pub binary: Option<String>,
+    /// Model, in the backend's own notation (`sonnet`, `anthropic/claude-sonnet-5`, …). Empty = the CLI's default.
+    pub model: Option<String>,
+    /// Let the agent use *all* its tools (shell, file edits, …) without asking. Off by default:
+    /// then only the hub's tools are pre-approved where the backend supports that.
+    pub auto_approve: bool,
+    /// For `Backend::Custom`: a command line with `{prompt}` and optionally `{mcp_config}`
+    /// placeholders (whole arguments), e.g. `mytool run --mcp {mcp_config} {prompt}`.
+    pub custom_command: String,
+}
+
+impl Default for AgentSettings {
+    fn default() -> AgentSettings {
+        AgentSettings { backend: Backend::ClaudeCode, binary: None, model: None, auto_approve: false, custom_command: String::new() }
+    }
+}
+
+/// The MCP server the agent should talk to (normally the hub).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServer {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+impl McpServer {
+    /// `creativecraft-cli mcp`, preferring the CLI that sits next to the running executable.
+    pub fn hub() -> McpServer {
+        let exe = if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" };
+        let command = std::env::current_exe()
+            .ok()
+            .map(|p| p.with_file_name(exe))
+            .filter(|p| p.is_file())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| exe.to_string());
+        McpServer { command, args: vec!["mcp".into()] }
+    }
+}
+
+/// Everything one turn needs.
+pub struct TurnRequest<'a> {
+    pub settings: &'a AgentSettings,
+    /// Working directory for the agent: the projects folder.
+    pub workspace: &'a Path,
+    /// Where per-run config files go (`<projects>/.creativecraft/agent`, never synced).
+    pub state_dir: &'a Path,
+    pub hub: &'a McpServer,
+    pub prompt: &'a str,
+    /// The backend's own session/conversation id from the previous turn, if any.
+    pub session: Option<&'a str>,
+}
+
+/// Start one turn. Events stream from the returned [`Running`].
+pub fn start_turn(req: &TurnRequest) -> Result<Running, AgentError> {
+    std::fs::create_dir_all(req.state_dir)?;
+    let cmd = backend::command(req)?;
+    Running::spawn(cmd, Parser::new(req.settings.backend))
+}
+
+/// `<projects>/.creativecraft/agent`
+pub fn state_dir(projects: &Path) -> PathBuf {
+    projects.join(".creativecraft").join("agent")
+}

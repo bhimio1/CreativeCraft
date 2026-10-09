@@ -1,0 +1,16 @@
+creativecraft-cli — the CreativeCraft hub without a window
+
+USAGE
+  creativecraft-cli list [--json]          every app and its status
+  creativecraft-cli install <app>...       install, or update to the latest release
+  creativecraft-cli remove <app>...        uninstall
+  creativecraft-cli open <app> [files...]  open an app
+  creativecraft-cli sync [--preview]       sync the projects folder with cloud storage
+  creativecraft-cli login | logout         sign in to / out of Google Drive
+  creativecraft-cli chat <message>         one AI chat turn (continues the current chat)
+  creativecraft-cli chat --new             start a fresh chat
+  creativecraft-cli agent-setup            one-time setup for the chat backend (Hermes)
+  creativecraft-cli mcp                    serve MCP on stdio for AI assistants
+
+Settings live in the config folder (settings.json). CREATIVECRAFT_HOME=<dir> keeps all data in one
+folder. GITHUB_TOKEN raises GitHub's download-API rate limit.

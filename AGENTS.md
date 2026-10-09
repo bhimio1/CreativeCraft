@@ -1,6 +1,6 @@
 # AGENTS.md: guide for AI agents and contributors
 
-Atelier is a hub for open-source creative apps, written in **Rust only**. It mirrors the Craft
+CreativeCraft is a hub for open-source creative apps, written in **Rust only**. It mirrors the Craft
 apps' architecture on purpose, so the same habits apply in every repo.
 
 ## Rules
@@ -10,7 +10,7 @@ apps' architecture on purpose, so the same habits apply in every repo.
    Rust backend; no C toolkits).
 2. **Layers.** A crate depends only on lower layers (see the table in README.md). L0 crates
    (`platform`, `sync-plan`) stay **std only** so they're trivially testable and portable.
-3. **Every action is a command.** UI, CLI and MCP all go through `atelier_engine::Session::execute`.
+3. **Every action is a command.** UI, CLI and MCP all go through `creativecraft_engine::Session::execute`.
    Adding a feature = add a `Command` variant + its implementation; then wire the UI button, the
    CLI verb and (if agents should use it) a hub MCP tool.
 4. **Never lose user work.** Sync never overwrites a file both sides changed; deletes go to a
@@ -22,7 +22,9 @@ apps' architecture on purpose, so the same habits apply in every repo.
 6. **No re-hosting.** The hub downloads apps from their publishers' own release pages at the
    user's request. Don't mirror binaries or bundle other projects' artwork.
 7. `unsafe_code` is forbidden workspace-wide. No `unwrap`/`expect`/`panic!` outside tests.
-8. **Agents' tools are user-facing.** Hub MCP tool names, descriptions and results are part of the
+8. **The chat never holds model credentials.** Backends are external agent CLIs with their own
+   sign-in; CreativeCraft only passes them a prompt and an MCP config. Don't add API-key handling.
+9. **Agents' tools are user-facing.** Hub MCP tool names, descriptions and results are part of the
    product: keep them short, accurate, and safe by default (no destructive tool without an
    explicit argument).
 
@@ -34,13 +36,14 @@ apps' architecture on purpose, so the same habits apply in every repo.
 | `docs/clean-room.md` | What we may and may not use, and why |
 | `ROADMAP.md` | Milestones and current focus |
 | `catalog/apps.toml` | Every app the hub knows about |
+| `docs/ai-chat.md` | How the chat drives external agent CLIs, and how to update a backend |
 
 ## Commands
 
 ```sh
 cargo test                     # everything
-cargo test -p atelier-sync-plan
+cargo test -p creativecraft-sync-plan
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all
-ATELIER_HOME=/tmp/at cargo run -p atelier-cli -- list   # isolated data folder
+CREATIVECRAFT_HOME=/tmp/at cargo run -p creativecraft-cli -- list   # isolated data folder
 ```

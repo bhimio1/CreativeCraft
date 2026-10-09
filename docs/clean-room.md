@@ -10,7 +10,7 @@ advice; have a lawyer review before a commercial launch.
 - Public specifications and documentation of *open formats and protocols* are fine (MCP spec,
   Google Drive REST API docs, ZIP/tar/gzip, OAuth 2.0 RFCs).
 - Open-source dependencies must be under licences compatible with MIT OR Apache-2.0 (MIT, Apache,
-  BSD, ISC, Zlib, MPL-2.0 as a dependency). **No GPL/AGPL code linked into Atelier.** Check with
+  BSD, ISC, Zlib, MPL-2.0 as a dependency). **No GPL/AGPL code linked into CreativeCraft.** Check with
   `cargo deny check licenses` (see ROADMAP).
 - Third-party apps (Blender, Krita, GIMP… many are GPL) are never linked, bundled or redistributed.
   The hub only detects them, launches them as separate processes, and links to their official
@@ -22,20 +22,26 @@ advice; have a lawyer review before a commercial launch.
 
 ## Trademarks: our own name and look
 
-- The product name is **Atelier** (a placeholder: search trademark registers in your markets
-  before launch, and change it in `Cargo.toml`, the window title, `APP_ID` and docs).
+- The product name is **CreativeCraft**. Two known risks to clear with a trademark search and,
+  ideally, the ArtCraft Team before launch:
+  - The ArtCraft name, wordmark and logos are ArtCraft Team trademarks and are **not** covered by
+    the Craft apps' open-source licences. Their apps follow a `{Function}Craft` naming pattern, so
+    "CreativeCraft" can read as one of theirs. Keep the NOTICE disclaimer visible (About box,
+    website) and never use their logos; the catalog shows generated monograms instead. Asking them
+    for a nod (or offering the hub to them) removes the risk entirely.
+  - "Creative" sits close to a well-known commercial "Creative …" suite name. Don't pair it with
+    that company's marks or styling.
+  To rename later, change `Cargo.toml`, the window title, `APP_ID` and docs.
 - Never use another company's product names, logos or slogans in our name, icon, window chrome or
-  marketing ("Creative Cloud alternative" in an ad is a comparative claim: get it reviewed).
-- The ArtCraft name, wordmark and logos are ArtCraft Team trademarks and are **not** covered by the
-  Craft apps' open-source licences. Don't use "-Craft" naming for Atelier itself, and don't use
-  their logos; the catalog shows generated monograms instead.
+  marketing (calling ourselves an "alternative" to a named commercial suite in an ad is a
+  comparative claim: get it reviewed).
 - Naming other apps to identify them ("Install PhotoCraft", "Open Blender") is nominative use and
   fine. Don't imply endorsement (see NOTICE).
 
 ## Trade dress: our own design
 
 - Don't imitate a competitor's distinctive launcher layout, colour scheme, iconography or wording.
-  Atelier's palette, layout and copy live in `crates/ui-egui/src/theme.rs` and are our own.
+  CreativeCraft's palette, layout and copy live in `crates/ui-egui/src/theme.rs` and are our own.
 
 ## Cloud and privacy
 

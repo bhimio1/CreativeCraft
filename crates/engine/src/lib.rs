@@ -7,12 +7,13 @@
 
 mod settings;
 
-pub use atelier_cloud::Action as SyncAction;
+pub use creativecraft_agent as agent;
+pub use creativecraft_cloud::Action as SyncAction;
 pub use settings::{CloudChoice, CustomMcp, Settings};
 
-use atelier_catalog::{AppSpec, Catalog, Kind};
-use atelier_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, GoogleDrive, sync};
-use atelier_install::{HubDirs, InstallError, Installer, Progress, Status};
+use creativecraft_catalog::{AppSpec, Catalog, Kind};
+use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, GoogleDrive, sync};
+use creativecraft_install::{HubDirs, InstallError, Installer, Progress, Status};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::process::{Child, Command as Proc, Stdio};
@@ -24,7 +25,7 @@ pub enum EngineError {
     #[error("{0}")]
     Cloud(#[from] CloudError),
     #[error("{0}")]
-    Catalog(#[from] atelier_catalog::CatalogError),
+    Catalog(#[from] creativecraft_catalog::CatalogError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("no app with id `{0}`")]
@@ -33,6 +34,8 @@ pub enum EngineError {
     CloudOff,
     #[error("couldn't find the hub's data folder on this computer")]
     NoHome,
+    #[error("{0}")]
+    Agent(#[from] creativecraft_agent::AgentError),
 }
 
 /// Everything the hub can do. Ids (`app.install`, …) are stable: the CLI and docs use them.
@@ -45,6 +48,8 @@ pub enum Command {
     Sync,
     SignInGoogle,
     SignOutGoogle,
+    /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
+    SetupAgent,
 }
 
 impl Command {
@@ -57,6 +62,7 @@ impl Command {
             Command::Sync => "cloud.sync",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
+            Command::SetupAgent => "agent.setup",
         }
     }
 }
@@ -168,7 +174,33 @@ impl Session {
                 GoogleDrive::sign_out(&self.token_file())?;
                 Ok("Signed out of Google Drive".into())
             }
+            Command::SetupAgent => match self.settings.agent.backend {
+                creativecraft_agent::Backend::Hermes => Ok(creativecraft_agent::setup_hermes(&creativecraft_agent::McpServer::hub())?),
+                b => Ok(format!("{} needs no setup: CreativeCraft passes it the MCP config on every turn", b.name())),
+            },
         }
+    }
+
+    /// The chat transcript (the model-side history lives in the backend's own session).
+    pub fn chat_file(&self) -> PathBuf {
+        self.dirs.data().join("chat.json")
+    }
+
+    /// Start one chat turn with the configured agent CLI, in the projects folder, with the hub as
+    /// its MCP server.
+    pub fn start_chat_turn(&self, prompt: &str, session: Option<&str>) -> Result<creativecraft_agent::Running, EngineError> {
+        std::fs::create_dir_all(&self.settings.projects_dir)?;
+        let hub = creativecraft_agent::McpServer::hub();
+        let state = creativecraft_agent::state_dir(&self.settings.projects_dir);
+        let req = creativecraft_agent::TurnRequest {
+            settings: &self.settings.agent,
+            workspace: &self.settings.projects_dir,
+            state_dir: &state,
+            hub: &hub,
+            prompt,
+            session,
+        };
+        Ok(creativecraft_agent::start_turn(&req)?)
     }
 
     /// What a sync would do now, changing nothing.
@@ -186,7 +218,7 @@ impl Session {
         Ok(self.installer.spawn_mcp(&app)?)
     }
 
-    /// The catalog with live status, as JSON (for the agent and `atelier-cli list --json`).
+    /// The catalog with live status, as JSON (for the agent and `creativecraft-cli list --json`).
     pub fn apps_json(&self) -> Value {
         let mut out: Vec<Value> = self
             .catalog
@@ -214,7 +246,7 @@ impl Session {
 }
 
 /// The agent's view of the session.
-impl atelier_mcp::HubBackend for Session {
+impl creativecraft_mcp::HubBackend for Session {
     fn list_apps(&mut self) -> Value {
         self.apps_json()
     }
@@ -238,7 +270,7 @@ mod tests {
 
     #[test]
     fn fresh_session_lists_the_catalog_and_syncs_to_a_folder() {
-        let root = std::env::temp_dir().join(format!("atelier-engine-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("creativecraft-engine-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let mut s = Session::open_at(HubDirs::under(&root)).unwrap();
         assert!(s.apps_json().as_array().unwrap().iter().any(|a| a["id"] == "photocraft" && a["status"] == "not_installed"));

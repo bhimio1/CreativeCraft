@@ -1,10 +1,10 @@
 [package]
-name = "atelier-platform"
+name = "creativecraft-platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L0: host OS/arch detection and release-asset matching (std only)"
+description = "CreativeCraft L0: host OS/arch detection and release-asset matching (std only)"
 
 [lints]
 workspace = true

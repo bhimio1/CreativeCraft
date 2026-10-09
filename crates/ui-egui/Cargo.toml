@@ -1,18 +1,18 @@
 [package]
-name = "atelier-ui-egui"
+name = "creativecraft-ui-egui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L4: the egui shell. Thin: every action goes through the engine's commands"
+description = "CreativeCraft L4: the egui shell. Thin: every action goes through the engine's commands"
 
 [lints]
 workspace = true
 
 [dependencies]
-atelier-engine = { workspace = true }
-atelier-install = { workspace = true }
-atelier-catalog = { workspace = true }
+creativecraft-engine = { workspace = true }
+creativecraft-install = { workspace = true }
+creativecraft-catalog = { workspace = true }
 egui = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

@@ -1,21 +1,24 @@
-//! `atelier-cli`: the hub without a window.
+//! `creativecraft-cli`: the hub without a window.
 //!
 //! ```text
-//! atelier-cli list [--json]          every app and its status
-//! atelier-cli install <app>…         install or update
-//! atelier-cli remove <app>…
-//! atelier-cli open <app> [files…]
-//! atelier-cli sync                   one cloud sync pass
-//! atelier-cli sync --preview         what a sync would do, changing nothing
-//! atelier-cli login | logout         Google Drive sign-in
-//! atelier-cli mcp                    serve MCP on stdio (point your AI assistant here)
+//! creativecraft-cli list [--json]          every app and its status
+//! creativecraft-cli install <app>…         install or update
+//! creativecraft-cli remove <app>…
+//! creativecraft-cli open <app> [files…]
+//! creativecraft-cli sync                   one cloud sync pass
+//! creativecraft-cli sync --preview         what a sync would do, changing nothing
+//! creativecraft-cli login | logout         Google Drive sign-in
+//! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
+//! creativecraft-cli chat --new              start a fresh chat
+//! creativecraft-cli agent-setup             one-time setup for the chat's agent CLI (Hermes)
+//! creativecraft-cli mcp                    serve MCP on stdio (point your AI assistant here)
 //! ```
 //!
 //! In `mcp` mode stdout carries protocol messages only; logs go to stderr.
 #![forbid(unsafe_code)]
 
-use atelier_engine::{Command, EngineError, Event, Session};
-use atelier_install::{Progress, Status};
+use creativecraft_engine::{Command, EngineError, Event, Session};
+use creativecraft_install::{Progress, Status};
 use std::io::Write;
 use std::process::ExitCode;
 
@@ -25,7 +28,7 @@ fn main() -> ExitCode {
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("atelier: {e}");
+            eprintln!("creativecraft: {e}");
             ExitCode::FAILURE
         }
     }
@@ -38,7 +41,7 @@ fn run(args: &[String]) -> Result<(), EngineError> {
         return Ok(());
     }
     if matches!(cmd, "version" | "-V" | "--version") {
-        println!("atelier-cli {}", env!("CARGO_PKG_VERSION"));
+        println!("creativecraft-cli {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     let mut s = Session::open()?;
@@ -80,12 +83,18 @@ fn run(args: &[String]) -> Result<(), EngineError> {
             }
         }
         "sync" => println!("{}", s.execute(Command::Sync, &mut print_progress)?),
+        "chat" if rest.iter().any(|a| a == "--new") => {
+            creativecraft_engine::agent::Conversation::default().save(&s.chat_file())?;
+            println!("Started a new chat");
+        }
+        "chat" => chat(&s, &rest.join(" "))?,
+        "agent-setup" => println!("{}", s.execute(Command::SetupAgent, &mut |_| {})?),
         "login" => println!("{}", s.execute(Command::SignInGoogle, &mut |_| {})?),
         "logout" => println!("{}", s.execute(Command::SignOutGoogle, &mut |_| {})?),
         "mcp" => {
             let stdin = std::io::stdin().lock();
             let stdout = std::io::stdout().lock();
-            let mut server = atelier_mcp::HubServer::new(s);
+            let mut server = creativecraft_mcp::HubServer::new(s);
             server.serve(stdin, stdout).map_err(|e| EngineError::Io(std::io::Error::other(e.to_string())))?;
         }
         other => {
@@ -93,6 +102,41 @@ fn run(args: &[String]) -> Result<(), EngineError> {
             println!("{}", include_str!("usage.txt"));
         }
     }
+    Ok(())
+}
+
+/// One chat turn: text to stdout as it streams, tool activity and errors to stderr.
+fn chat(s: &Session, message: &str) -> Result<(), EngineError> {
+    use creativecraft_engine::agent::{ChatEvent, Conversation};
+    if message.trim().is_empty() {
+        eprintln!("usage: creativecraft-cli chat <message>");
+        return Ok(());
+    }
+    let file = s.chat_file();
+    let mut convo = Conversation::load(&file);
+    let backend = s.settings.agent.backend;
+    convo.push_user(backend, message);
+    let session = convo.session_for(backend).map(str::to_string);
+    let run = s.start_chat_turn(message, session.as_deref())?;
+    let mut out = std::io::stdout();
+    for ev in run.events.iter() {
+        match &ev {
+            ChatEvent::Text(t) => {
+                let _ = write!(out, "{t}");
+                let _ = out.flush();
+            }
+            ChatEvent::ToolUse { name, .. } => eprintln!("\n  → {name}"),
+            ChatEvent::ToolResult { is_error: true, text } => eprintln!("  ✗ {text}"),
+            ChatEvent::Error(e) => eprintln!("\n{}: {e}", backend.name()),
+            _ => {}
+        }
+        convo.apply(&ev);
+        if ev == ChatEvent::Done {
+            break;
+        }
+    }
+    println!();
+    convo.save(&file)?;
     Ok(())
 }
 

@@ -1,15 +1,15 @@
 //! Google Drive (REST v3) backend.
 //!
-//! Files live under one folder, "Atelier Projects", mirroring the local tree with real Drive
+//! Files live under one folder, "CreativeCraft Projects", mirroring the local tree with real Drive
 //! folders so they look right in the Drive web UI. Every file and folder the hub creates is tagged
-//! with private `appProperties`:
+//! with private `appProperties` (Drive caps each key+value at 124 bytes, so they stay short):
 //!
-//! - `atelier_kind` = `root` | `dir` | `file`
-//! - `atelier_root` = the root folder's id
-//! - `atelier_path` = the `/`-separated relative path
+//! - `cc_kind` = `root` | `dir` | `file`
+//! - `cc_root` = the root folder's id
 //!
-//! so one paginated query lists the whole tree without walking folders. With the `drive.file`
-//! scope the hub only ever sees files it created.
+//! One paginated query lists the whole tree; each item's relative path is rebuilt from its `name`
+//! and `parents`, so paths of any length work and a rename in the Drive web UI is seen as a move.
+//! With the `drive.file` scope the hub only ever sees files it created.
 
 use crate::oauth::{GoogleClient, Token, pct};
 use crate::{CloudError, CloudStore, RemoteFile};
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 const API: &str = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3/files";
 const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
-pub const ROOT_NAME: &str = "Atelier Projects";
+pub const ROOT_NAME: &str = "CreativeCraft Projects";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +34,9 @@ struct DriveFile {
     #[serde(default)]
     size: Option<String>,
     #[serde(default)]
-    app_properties: HashMap<String, String>,
+    name: String,
+    #[serde(default)]
+    parents: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,7 +95,7 @@ impl GoogleDrive {
                 .query("q", q)
                 .query("spaces", "drive")
                 .query("pageSize", "1000")
-                .query("fields", "nextPageToken,files(id,mimeType,md5Checksum,size,appProperties)");
+                .query("fields", "nextPageToken,files(id,name,parents,mimeType,md5Checksum,size)");
             if let Some(p) = &page {
                 req = req.query("pageToken", p);
             }
@@ -106,12 +108,12 @@ impl GoogleDrive {
         }
     }
 
-    /// Find or create the "Atelier Projects" folder.
+    /// Find or create the "CreativeCraft Projects" folder.
     fn root(&mut self) -> Result<String, CloudError> {
         if let Some(id) = &self.root_id {
             return Ok(id.clone());
         }
-        let found = self.query("appProperties has { key='atelier_kind' and value='root' } and trashed = false")?;
+        let found = self.query("appProperties has { key='cc_kind' and value='root' } and trashed = false")?;
         let id = match found.into_iter().next() {
             Some(f) => f.id,
             None => {
@@ -122,7 +124,7 @@ impl GoogleDrive {
                     .send_json(json!({
                         "name": ROOT_NAME,
                         "mimeType": FOLDER_MIME,
-                        "appProperties": { "atelier_kind": "root" },
+                        "appProperties": { "cc_kind": "root" },
                     }))?
                     .into_json()?;
                 f.id
@@ -153,7 +155,7 @@ impl GoogleDrive {
                     "name": seg,
                     "mimeType": FOLDER_MIME,
                     "parents": [parent],
-                    "appProperties": { "atelier_kind": "dir", "atelier_root": root, "atelier_path": so_far.trim_end_matches('/') },
+                    "appProperties": { "cc_kind": "dir", "cc_root": root },
                 }))?
                 .into_json()?;
             self.ids.insert(so_far.clone(), f.id.clone());
@@ -180,12 +182,13 @@ impl CloudStore for GoogleDrive {
 
     fn list(&mut self) -> Result<Vec<RemoteFile>, CloudError> {
         let root = self.root()?;
-        let q = format!("appProperties has {{ key='atelier_root' and value='{}' }} and trashed = false", root.replace('\'', "\\'"));
+        let q = format!("appProperties has {{ key='cc_root' and value='{}' }} and trashed = false", root.replace('\'', "\\'"));
         let files = self.query(&q)?;
+        let paths = build_paths(&files, &root);
         self.ids.clear();
         let mut out = Vec::new();
         for f in files {
-            let Some(path) = f.app_properties.get("atelier_path").cloned() else { continue };
+            let Some(path) = paths.get(&f.id).cloned() else { continue };
             if f.mime_type == FOLDER_MIME {
                 self.ids.insert(format!("{path}/"), f.id);
                 continue;
@@ -205,7 +208,7 @@ impl CloudStore for GoogleDrive {
         let auth = self.bearer()?;
         let resp = ureq::get(&format!("{API}/{}", pct(&id))).set("Authorization", &auth).query("alt", "media").call()?;
         let mut tmp_name = dest.file_name().unwrap_or_default().to_os_string();
-        tmp_name.push(".atelier.part");
+        tmp_name.push(".creativecraft.part");
         let tmp = dest.with_file_name(tmp_name);
         {
             let mut out = std::fs::File::create(&tmp)?;
@@ -239,7 +242,7 @@ impl CloudStore for GoogleDrive {
                     .send_json(json!({
                         "name": name,
                         "parents": [parent],
-                        "appProperties": { "atelier_kind": "file", "atelier_root": root, "atelier_path": path },
+                        "appProperties": { "cc_kind": "file", "cc_root": root },
                     }))?
             }
         };
@@ -255,5 +258,60 @@ impl CloudStore for GoogleDrive {
         ureq::request("PATCH", &format!("{API}/{}", pct(&id))).set("Authorization", &auth).send_json(json!({ "trashed": true }))?;
         self.ids.remove(path);
         Ok(())
+    }
+}
+
+/// Relative path of every item reachable from `root` through `parents`. Items whose chain leaves
+/// the tree (moved out in the web UI) or loops are skipped.
+fn build_paths(items: &[DriveFile], root: &str) -> HashMap<String, String> {
+    let by_id: HashMap<&str, &DriveFile> = items.iter().map(|f| (f.id.as_str(), f)).collect();
+    let mut out = HashMap::new();
+    for f in items {
+        let mut segs = vec![f.name.as_str()];
+        let mut cur = f;
+        let mut ok = false;
+        for _ in 0..64 {
+            let Some(parent) = cur.parents.first() else { break };
+            if parent == root {
+                ok = true;
+                break;
+            }
+            let Some(p) = by_id.get(parent.as_str()) else { break };
+            segs.push(p.name.as_str());
+            cur = p;
+        }
+        let bad = |s: &&str| s.is_empty() || *s == "." || *s == ".." || s.contains('/');
+        if ok && !segs.iter().any(bad) {
+            segs.reverse();
+            out.insert(f.id.clone(), segs.join("/"));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(id: &str, name: &str, parent: &str) -> DriveFile {
+        DriveFile { id: id.into(), mime_type: String::new(), md5_checksum: None, size: None, name: name.into(), parents: vec![parent.into()] }
+    }
+
+    #[test]
+    fn paths_from_parents() {
+        let long = "x".repeat(300);
+        let items = vec![
+            item("d1", "art", "R"),
+            item("d2", &long, "d1"),
+            item("f1", "poster.pcraft", "d2"),
+            item("f2", "top.png", "R"),
+            item("f3", "lost.png", "elsewhere"),
+            item("f4", "..", "R"),
+        ];
+        let p = build_paths(&items, "R");
+        assert_eq!(p["f1"], format!("art/{long}/poster.pcraft"));
+        assert_eq!(p["f2"], "top.png");
+        assert!(!p.contains_key("f3"));
+        assert!(!p.contains_key("f4"));
     }
 }

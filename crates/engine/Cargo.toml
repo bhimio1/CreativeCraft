@@ -1,19 +1,20 @@
 [package]
-name = "atelier-engine"
+name = "creativecraft-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Atelier L3: the Session and its command registry; every action (UI, CLI, agent) goes through here"
+description = "CreativeCraft L3: the Session and its command registry; every action (UI, CLI, agent) goes through here"
 
 [lints]
 workspace = true
 
 [dependencies]
-atelier-catalog = { workspace = true }
-atelier-install = { workspace = true }
-atelier-cloud = { workspace = true }
-atelier-mcp = { workspace = true }
+creativecraft-catalog = { workspace = true }
+creativecraft-install = { workspace = true }
+creativecraft-cloud = { workspace = true }
+creativecraft-mcp = { workspace = true }
+creativecraft-agent = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

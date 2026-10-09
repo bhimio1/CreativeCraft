@@ -1,5 +1,5 @@
 use crate::InstallError;
-use atelier_platform::ArchiveKind;
+use creativecraft_platform::ArchiveKind;
 use std::path::{Path, PathBuf};
 
 /// Unpack a downloaded archive into `dest`. Entries that would escape `dest` are refused (both
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn finds_nested_and_bundled_executables() {
-        let root = std::env::temp_dir().join(format!("atelier-find-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("creativecraft-find-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("photocraft-0.5.0/bin")).unwrap();
         std::fs::write(root.join("photocraft-0.5.0/bin/photocraft-cli"), b"").unwrap();

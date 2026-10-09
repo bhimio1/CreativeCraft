@@ -42,7 +42,7 @@ impl Client {
             json!({
                 "protocolVersion": PROTOCOL_VERSIONS[0],
                 "capabilities": {},
-                "clientInfo": { "name": "atelier-hub", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "creativecraft-hub", "version": env!("CARGO_PKG_VERSION") },
             }),
         )?;
         c.server_info = init.get("serverInfo").cloned().unwrap_or(Value::Null);

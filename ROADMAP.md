@@ -10,7 +10,19 @@
 - [x] MCP client + hub MCP server with lazy app servers and namespaced tools
 - [x] egui window: Apps, Projects & cloud, AI agent, Settings; CLI with `mcp`
 
+## M0.1: AI chat (this commit)
+- [x] Renamed to CreativeCraft
+- [x] `creativecraft-agent`: Claude Code, OpenCode, Hermes Agent, Antigravity CLI and custom backends
+- [x] Per-run MCP config pointing each backend at the hub; Hermes one-time setup
+- [x] Stream parsing (exact for Claude Code, tolerant for the rest) + transcript; chat page and `creativecraft-cli chat`
+- [x] Sync lock shared by window, CLI and agent
+
 ## M1: make it solid
+- [ ] Record real transcripts from OpenCode, Hermes and Antigravity; tighten their parsers with fixtures
+- [ ] Multi-turn without a process per message where supported (Claude Code / Antigravity `--input-format stream-json`)
+- [ ] Attach files and images to a chat message; show images the agent produces inline
+- [ ] Chat history list (several conversations), rename/delete
+- [ ] Approve tool calls from the chat UI instead of all-or-nothing (Claude Code `--permission-prompt-tool`)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed
 - [ ] Token storage in the OS keychain (`keyring` crate) instead of a 0600 file
@@ -25,8 +37,6 @@
 - [ ] Settings import/export; multiple cloud profiles
 - [ ] Packaging like the Craft apps: signed/notarized macOS zip, Windows zip + optional MSI,
       AppImage/deb/rpm/Flatpak; self-update for the hub
-- [ ] Built-in agent panel: chat with a model of the user's choice (their own API key) using the
-      same hub tools, so the window works without an external MCP host
 
 ## M3: ecosystem
 - [ ] Signed catalog feed (so new apps appear without a hub update)

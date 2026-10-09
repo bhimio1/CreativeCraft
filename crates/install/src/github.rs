@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::Path;
 
-const UA: &str = concat!("atelier-hub/", env!("CARGO_PKG_VERSION"));
+const UA: &str = concat!("creativecraft-hub/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone)]
 pub struct Release {

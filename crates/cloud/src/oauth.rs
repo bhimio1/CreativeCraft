@@ -199,9 +199,9 @@ fn wait_for_code(listener: &TcpListener, state: &str, timeout: Duration) -> Resu
             _ => (false, Err(CloudError::Auth(String::new()))), // favicon or stray request: keep waiting
         };
         let body = if ok {
-            "<h2>Signed in.</h2><p>You can close this tab and return to Atelier.</p>"
+            "<h2>Signed in.</h2><p>You can close this tab and return to CreativeCraft.</p>"
         } else {
-            "<h2>Sign-in did not complete.</h2><p>Return to Atelier and try again.</p>"
+            "<h2>Sign-in did not complete.</h2><p>Return to CreativeCraft and try again.</p>"
         };
         let _ =
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
@@ -212,7 +212,6 @@ fn wait_for_code(listener: &TcpListener, state: &str, timeout: Duration) -> Resu
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

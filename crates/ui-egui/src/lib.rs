@@ -1,21 +1,23 @@
 //! The hub window (L4). Thin by design: it shows state and turns clicks into engine commands.
 //! Long commands (installs, syncs) run on a worker thread; progress comes back over a channel.
 //!
-//! The look is Atelier's own: its own palette, layout and wording. It intentionally does not
+//! The look is CreativeCraft's own: its own palette, layout and wording. It intentionally does not
 //! imitate any commercial launcher's trade dress.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+mod chat;
 mod theme;
 
-use atelier_catalog::Kind;
-use atelier_engine::{CloudChoice, Command, CustomMcp, Event, Session, Settings};
-use atelier_install::{Progress, Status};
+use creativecraft_catalog::Kind;
+use creativecraft_engine::{CloudChoice, Command, CustomMcp, Event, Session, Settings};
+use creativecraft_install::{Progress, Status};
 use egui::RichText;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
+    Chat,
     Apps,
     Projects,
     Agent,
@@ -40,7 +42,7 @@ enum Msg {
     Done(String, Result<String, String>),
 }
 
-pub struct AtelierApp {
+pub struct CreativeCraftApp {
     session: Arc<Mutex<Session>>,
     ctx: egui::Context,
     page: Page,
@@ -56,21 +58,23 @@ pub struct AtelierApp {
     new_mcp: CustomMcp,
     filter: String,
     last_auto_sync: f64,
+    chat: chat::ChatState,
 }
 
-impl AtelierApp {
-    pub fn new(session: Session, ctx: egui::Context) -> AtelierApp {
+impl CreativeCraftApp {
+    pub fn new(session: Session, ctx: egui::Context) -> CreativeCraftApp {
         theme::apply(&ctx);
         let (tx, rx) = channel();
         let cli_path = std::env::current_exe()
             .ok()
-            .map(|p| p.with_file_name(if cfg!(windows) { "atelier-cli.exe" } else { "atelier-cli" }).display().to_string())
-            .unwrap_or_else(|| "atelier-cli".into());
+            .map(|p| p.with_file_name(if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" }).display().to_string())
+            .unwrap_or_else(|| "creativecraft-cli".into());
         let draft = session.settings.clone();
-        let mut app = AtelierApp {
+        let chat = chat::ChatState::new(session.chat_file());
+        let mut app = CreativeCraftApp {
             session: Arc::new(Mutex::new(session)),
             ctx,
-            page: Page::Apps,
+            page: Page::Chat,
             rows: Vec::new(),
             draft,
             signed_in: false,
@@ -83,6 +87,7 @@ impl AtelierApp {
             new_mcp: CustomMcp { id: String::new(), name: String::new(), command: String::new(), args: Vec::new() },
             filter: String::new(),
             last_auto_sync: 0.0,
+            chat,
         };
         app.refresh();
         app
@@ -185,15 +190,22 @@ impl AtelierApp {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.pump();
+        self.pump_chat();
         self.auto_sync();
         let t = theme::Tokens::get();
 
         egui::Panel::left("nav").exact_size(196.0).frame(egui::Frame::NONE.fill(t.rail).inner_margin(14)).show(ui, |ui| {
             ui.add_space(6.0);
-            ui.label(RichText::new("Atelier").size(22.0).strong().color(t.ink));
+            ui.label(RichText::new("CreativeCraft").size(22.0).strong().color(t.ink));
             ui.label(RichText::new("your creative studio").size(12.0).color(t.muted));
             ui.add_space(18.0);
-            for (page, label) in [(Page::Apps, "Apps"), (Page::Projects, "Projects & cloud"), (Page::Agent, "AI agent"), (Page::Settings, "Settings")] {
+            for (page, label) in [
+                (Page::Chat, "AI chat"),
+                (Page::Apps, "Apps"),
+                (Page::Projects, "Projects & cloud"),
+                (Page::Agent, "Connections"),
+                (Page::Settings, "Settings"),
+            ] {
                 let selected = self.page == page;
                 let text = RichText::new(label).size(15.0).color(if selected { t.accent } else { t.ink });
                 if ui.add(egui::Button::selectable(selected, text).min_size(egui::vec2(168.0, 32.0))).clicked() {
@@ -217,7 +229,13 @@ impl AtelierApp {
         });
 
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.paper).inner_margin(24)).show(ui, |ui| {
+            if self.page == Page::Chat {
+                // the chat lays out its own scrolling transcript and input box
+                self.chat_page(ui);
+                return;
+            }
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match self.page {
+                Page::Chat => {}
                 Page::Apps => self.apps_page(ui),
                 Page::Projects => self.projects_page(ui),
                 Page::Agent => self.agent_page(ui),
@@ -314,7 +332,7 @@ impl AtelierApp {
     fn projects_page(&mut self, ui: &mut egui::Ui) {
         let t = theme::Tokens::get();
         ui.heading("Projects & cloud");
-        ui.label(RichText::new("Save your work anywhere inside your projects folder; Atelier keeps it in sync across your computers.").color(t.muted));
+        ui.label(RichText::new("Save your work anywhere inside your projects folder; CreativeCraft keeps it in sync across your computers.").color(t.muted));
         ui.add_space(14.0);
         egui::Grid::new("proj").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
             ui.label("Projects folder");
@@ -361,13 +379,13 @@ impl AtelierApp {
 
     fn agent_page(&mut self, ui: &mut egui::Ui) {
         let t = theme::Tokens::get();
-        ui.heading("AI agent");
+        ui.heading("Connections");
         ui.label(
-            RichText::new("Atelier is one MCP server for all your apps. Connect any MCP-capable assistant to it, and the assistant can list, install and open apps, sync projects, and use every agent-ready app's tools.")
+            RichText::new("CreativeCraft is one MCP server for all your apps. The built-in AI chat connects to it automatically. You can also connect any other MCP-capable assistant: it can then list, install and open apps, sync projects, and use every agent-ready app's tools.")
                 .color(t.muted),
         );
         ui.add_space(12.0);
-        let config = serde_json::json!({ "mcpServers": { "atelier": { "command": self.cli_path, "args": ["mcp"] } } });
+        let config = serde_json::json!({ "mcpServers": { "creativecraft": { "command": self.cli_path, "args": ["mcp"] } } });
         let text = serde_json::to_string_pretty(&config).unwrap_or_default();
         ui.label(RichText::new("Add this to your assistant's MCP configuration:").strong());
         egui::Frame::NONE.fill(t.card).stroke(egui::Stroke::new(1.0, t.line)).corner_radius(8).inner_margin(10).show(ui, |ui| {
@@ -455,7 +473,7 @@ impl AtelierApp {
                         ui.add(egui::TextEdit::singleline(client_id).hint_text("OAuth client id").desired_width(380.0));
                         ui.add(egui::TextEdit::singleline(client_secret).hint_text("OAuth client secret").password(true).desired_width(380.0));
                         ui.label(
-                            RichText::new("Atelier only gets access to files it creates (the drive.file scope), never the rest of your Drive.")
+                            RichText::new("CreativeCraft only gets access to files it creates (the drive.file scope), never the rest of your Drive.")
                                 .size(11.0)
                                 .color(t.muted),
                         );
@@ -475,6 +493,41 @@ impl AtelierApp {
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
                 ui.label("minutes (0 = only when I click Sync)");
+            });
+            ui.end_row();
+
+            ui.label("AI chat");
+            ui.vertical(|ui| {
+                let a = &mut self.draft.agent;
+                egui::ComboBox::from_id_salt("settings_backend").selected_text(a.backend.name()).show_ui(ui, |ui| {
+                    for b in creativecraft_engine::agent::Backend::ALL {
+                        ui.selectable_value(&mut a.backend, b, b.name());
+                    }
+                });
+                if a.backend == creativecraft_engine::agent::Backend::Custom {
+                    ui.add(egui::TextEdit::singleline(&mut a.custom_command).hint_text("mytool run --mcp {mcp_config} {prompt}").desired_width(380.0));
+                    ui.label(
+                        RichText::new("{prompt} is the message; {mcp_config} is a JSON file listing the CreativeCraft MCP server.").size(11.0).color(t.muted),
+                    );
+                } else {
+                    let mut bin = a.binary.clone().unwrap_or_default();
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut bin).hint_text(format!("program (default: {})", a.backend.default_binary())).desired_width(380.0))
+                        .changed()
+                    {
+                        a.binary = (!bin.trim().is_empty()).then_some(bin);
+                    }
+                }
+                let mut model = a.model.clone().unwrap_or_default();
+                if ui.add(egui::TextEdit::singleline(&mut model).hint_text("model (blank = the agent's default)").desired_width(380.0)).changed() {
+                    a.model = (!model.trim().is_empty()).then_some(model);
+                }
+                ui.checkbox(&mut a.auto_approve, "Let the agent use all its tools without asking (shell, file edits…)");
+                ui.label(
+                    RichText::new("Off: only CreativeCraft's own tools are pre-approved (where the agent supports it); other actions are refused in chat.")
+                        .size(11.0)
+                        .color(t.muted),
+                );
             });
             ui.end_row();
         });

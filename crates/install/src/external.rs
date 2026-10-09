@@ -1,7 +1,7 @@
 //! Detect apps the user installed themselves (kind = "external").
 
-use atelier_catalog::AppSpec;
-use atelier_platform::{Host, Os};
+use creativecraft_catalog::AppSpec;
+use creativecraft_platform::{Host, Os};
 use std::path::{Path, PathBuf};
 
 /// Where an external app lives, if it is installed: an executable on `PATH`, a macOS `.app`

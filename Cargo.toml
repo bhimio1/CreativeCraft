@@ -1,25 +1,26 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
-default-members = ["crates/*", "apps/atelier", "apps/atelier-cli"]
+default-members = ["crates/*", "apps/creativecraft", "apps/creativecraft-cli"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
-repository = "https://github.com/YOUR-ORG/atelier"
+repository = "https://github.com/YOUR-ORG/creativecraft"
 
 [workspace.dependencies]
 # internal (layer in brackets; a crate may only depend on lower layers)
-atelier-platform = { path = "crates/platform" }   # L0, std only
-atelier-sync-plan = { path = "crates/sync-plan" } # L0, std only
-atelier-catalog = { path = "crates/catalog" }     # L1
-atelier-install = { path = "crates/install" }     # L2
-atelier-cloud = { path = "crates/cloud" }         # L2
-atelier-mcp = { path = "crates/mcp" }             # L2
-atelier-engine = { path = "crates/engine" }       # L3
-atelier-ui-egui = { path = "crates/ui-egui" }     # L4
+creativecraft-platform = { path = "crates/platform" }   # L0, std only
+creativecraft-sync-plan = { path = "crates/sync-plan" } # L0, std only
+creativecraft-catalog = { path = "crates/catalog" }     # L1
+creativecraft-install = { path = "crates/install" }     # L2
+creativecraft-cloud = { path = "crates/cloud" }         # L2
+creativecraft-mcp = { path = "crates/mcp" }             # L2
+creativecraft-agent = { path = "crates/agent" }         # L2
+creativecraft-engine = { path = "crates/engine" }       # L3
+creativecraft-ui-egui = { path = "crates/ui-egui" }     # L4
 
 # external: pure Rust only (rustls, not OpenSSL; no webview, no C toolkits)
 thiserror = "2"

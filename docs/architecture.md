@@ -3,17 +3,17 @@
 ## Crates and layers
 
 ```text
-                    apps/atelier (eframe)     apps/atelier-cli (CLI + `mcp`)
+                    apps/creativecraft (eframe)     apps/creativecraft-cli (CLI + `mcp`)
                               │                         │
 L4  ui-egui ──────────────────┘                         │
                               │                         │
 L3  engine    Session { catalog, installer, settings } + Command registry
-              implements atelier_mcp::HubBackend
+              implements creativecraft_mcp::HubBackend
                  │            │             │
-L2  install         cloud           mcp
-    GitHub releases  CloudStore      Client (stdio JSON-RPC)
+L2  install         cloud           mcp                        agent
+    GitHub releases  CloudStore      Client (stdio JSON-RPC)    agent-CLI backends
     verify/unpack    GoogleDrive     HubServer (aggregates app servers)
-    detect/launch    FolderStore
+    detect/launch    FolderStore                                parse streams, transcript
                      sync executor
                  │            │
 L1  catalog   (apps.toml model)
@@ -25,7 +25,7 @@ L2 never depends on L3.
 
 ## Commands
 
-`atelier_engine::Command` is the single list of actions. The window runs commands on a worker
+`creativecraft_engine::Command` is the single list of actions. The window runs commands on a worker
 thread (installs and syncs can take minutes) and receives `Event`s over a channel; the CLI runs
 them inline and prints progress to stderr; the MCP server runs them for the agent.
 
@@ -56,14 +56,15 @@ them inline and prints progress to stderr; the MCP server runs them for the agen
 The executor applies actions one by one; a failure is reported and that path keeps its old base,
 so it's retried next time. Hashes are MD5 because Google Drive reports `md5Checksum` natively.
 
-Drive layout: one "Atelier Projects" folder mirroring the local tree. Every item carries private
-`appProperties` (`atelier_kind`, `atelier_root`, `atelier_path`), so the whole tree lists with one
-paginated query and the hub never needs broader access than `drive.file`.
+Drive layout: one "CreativeCraft Projects" folder mirroring the local tree. Every item carries short
+private `appProperties` (`cc_kind`, `cc_root`), so the whole tree lists with one paginated query;
+paths are rebuilt from names and parents (Drive caps each property at 124 bytes, too small for
+paths). The hub never needs broader access than `drive.file`.
 
 ## Agent hub
 
 ```text
-MCP host (Claude Desktop, …) ⇄ stdio ⇄ atelier-cli mcp (HubServer)
+MCP host (Claude Desktop, …) ⇄ stdio ⇄ creativecraft-cli mcp (HubServer)
                                           ├─ hub_* tools → Session commands
                                           ├─ photocraft-cli mcp  (spawned on first use)
                                           ├─ vectorcraft-cli mcp
@@ -74,6 +75,14 @@ Tools from app servers are re-exported as `<app>__<tool>`; the hub sends
 `notifications/tools/list_changed` when an app server starts so the host refreshes its tool list.
 `app_tools` / `app_call` give hosts that don't refresh a way in, too.
 
+## AI chat
+
+See [ai-chat.md](ai-chat.md). The window starts a turn with `creativecraft_agent::start_turn`; the
+backend CLI runs as a child process in the projects folder and connects back to the hub through a
+fresh `creativecraft-cli mcp` process, so everything the agent does still goes through engine
+commands. Syncs take a lock file (`<projects>/.creativecraft/sync.lock`) because the window, the
+CLI and the agent's hub process can each start one.
+
 ## On disk
 
 ```text
@@ -83,7 +92,9 @@ Tools from app servers are re-exported as `<app>__<tool>`; the hub sends
 <config>/settings.json
 <config>/apps.toml                optional catalog overlay
 <config>/google-token.json        (0600)
-<projects>/.atelier/sync-base.json, trash/
+<data>/chat.json                  chat transcript (the model history lives in the backend's session)
+<projects>/.creativecraft/sync-base.json, sync.lock, trash/, agent/
+<projects>/.agents/mcp_config.json   Antigravity's workspace MCP config (not synced)
 ```
 
-`<data>` and `<config>` come from `directories` (per-OS standard locations) or `ATELIER_HOME`.
+`<data>` and `<config>` come from `directories` (per-OS standard locations) or `CREATIVECRAFT_HOME`.
