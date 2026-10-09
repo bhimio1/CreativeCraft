@@ -53,7 +53,12 @@ fn net(e: impl std::fmt::Display) -> InstallError {
 
 pub fn latest_release(repo: &str) -> Result<Release, InstallError> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let r: ApiRelease = get(&url).set("Accept", "application/vnd.github+json").call().map_err(net)?.into_json().map_err(net)?;
+    let r: ApiRelease = match get(&url).set("Accept", "application/vnd.github+json").call() {
+        Ok(resp) => resp.into_json().map_err(net)?,
+        // no repository, or one without releases (common for forks): say so plainly
+        Err(ureq::Error::Status(404, _)) => return Err(InstallError::Source(format!("{repo} doesn't exist or has published no releases"))),
+        Err(e) => return Err(net(e)),
+    };
     Ok(Release { tag: r.tag_name, assets: r.assets.into_iter().map(|a| Asset { name: a.name, url: a.browser_download_url, size: a.size }).collect() })
 }
 

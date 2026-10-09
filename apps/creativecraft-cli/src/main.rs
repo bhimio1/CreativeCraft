@@ -8,6 +8,7 @@
 //! creativecraft-cli sync                   one cloud sync pass
 //! creativecraft-cli sync --preview         what a sync would do, changing nothing
 //! creativecraft-cli login | logout         Google Drive sign-in
+//! creativecraft-cli projects [--json]     recent files in the projects folder
 //! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
 //! creativecraft-cli chat --new              start a fresh chat
@@ -61,6 +62,39 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                 println!("{:<12} {:<14} {:<12} {}", a.id, a.name, a.category, status);
             }
         }
+        "install" | "update" if rest.iter().any(|a| matches!(a.as_str(), "--fork" | "--git" | "--release")) => {
+            // choose (and remember) where this app installs from, then install it
+            let id = rest.first().filter(|a| !a.starts_with("--")).ok_or_else(|| EngineError::UnknownApp(String::new()))?.clone();
+            let value = |flag: &str| rest.iter().position(|a| a == flag).and_then(|i| rest.get(i + 1)).filter(|v| !v.starts_with("--")).cloned();
+            let source = if rest.iter().any(|a| a == "--release") {
+                creativecraft_engine::Source::Release
+            } else if rest.iter().any(|a| a == "--fork") {
+                creativecraft_engine::Source::Fork { repo: value("--fork").unwrap_or_default() }
+            } else {
+                creativecraft_engine::Source::Git { url: value("--git").unwrap_or_default(), branch: value("--branch").unwrap_or_default() }
+            };
+            source.validate().map_err(EngineError::from)?;
+            s.app(&id)?;
+            // install with the new source; remember it only once that worked
+            let previous = s.settings.app_sources.clone();
+            if source == creativecraft_engine::Source::Release {
+                s.settings.app_sources.remove(&id);
+            } else {
+                s.settings.app_sources.insert(id.clone(), source);
+            }
+            let result = s.execute(Command::Install(id), &mut print_progress);
+            eprintln!();
+            match result {
+                Ok(msg) => {
+                    s.save_settings()?;
+                    println!("{msg}");
+                }
+                Err(e) => {
+                    s.settings.app_sources = previous;
+                    return Err(e);
+                }
+            }
+        }
         "install" | "update" | "remove" | "uninstall" => {
             for id in rest {
                 let c = if cmd == "install" || cmd == "update" { Command::Install(id.clone()) } else { Command::Uninstall(id.clone()) };
@@ -89,6 +123,23 @@ fn run(args: &[String]) -> Result<(), EngineError> {
             println!("Started a new chat");
         }
         "chat" => chat(&s, &rest.join(" "))?,
+        "projects" => {
+            let files = creativecraft_engine::projects::scan(&s.settings.projects_dir, &s.catalog, 100);
+            if rest.iter().any(|a| a == "--json") {
+                let v: Vec<_> = files
+                    .iter()
+                    .map(|f| {
+                        let modified = f.modified.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                        serde_json::json!({ "path": f.path, "app": f.app, "modified": modified, "size": f.size })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            } else {
+                for f in &files {
+                    println!("{:<12} {}", f.app.as_deref().unwrap_or("-"), f.path.display());
+                }
+            }
+        }
         "bug" | "report-bug" => {
             // print the address too, for terminals without a browser
             let id = rest.first().cloned();
@@ -154,7 +205,10 @@ fn print_progress(e: Event) {
             format!("\r{id}: {:>3}%  {:.1}/{:.1} MB", done * 100 / t, done as f64 / 1e6, t as f64 / 1e6)
         }
         Event::Install(id, Progress::Downloading { done, .. }) => format!("\r{id}: {:.1} MB", done as f64 / 1e6),
-        Event::Install(id, p) => format!("\r{id}: {p:?}            "),
+        Event::Install(id, Progress::Building { crates, current }) => format!("\r{id}: compiling ({crates} crates) {current:<40.40}"),
+        // git and cargo output is summarised above; a failure reports its last lines
+        Event::Install(_, Progress::Log(_)) => return,
+        Event::Install(id, p) => format!("\r{id}: {p:?}{:<40}", ""),
         Event::Sync { done, total, path } => format!("\r[{done}/{total}] {path:<60.60}"),
     };
     let _ = write!(err, "{line}");

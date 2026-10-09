@@ -28,7 +28,7 @@ pub struct Textures {
     logo_white: Option<egui::TextureHandle>,
     logo_dark: Option<egui::TextureHandle>,
     pub mark: Option<egui::TextureHandle>,
-    apps: HashMap<&'static str, egui::TextureHandle>,
+    apps: HashMap<String, egui::TextureHandle>,
 }
 
 fn load(ctx: &egui::Context, name: &str, png: &[u8]) -> Option<egui::TextureHandle> {
@@ -54,7 +54,7 @@ impl Textures {
             logo_white: load(ctx, "brand/logo-white", LOGO_WHITE),
             logo_dark: load(ctx, "brand/logo", LOGO_DARK),
             mark: load(ctx, "brand/mark", MARK),
-            apps: APPS.iter().filter_map(|(id, png)| load(ctx, id, png).map(|t| (*id, t))).collect(),
+            apps: APPS.iter().filter_map(|(id, png)| load(ctx, id, png).map(|t| ((*id).to_string(), t))).collect(),
         }
     }
 
@@ -65,7 +65,33 @@ impl Textures {
 
     /// Every bundled Craft app icon, in catalog order.
     pub fn app_icons(&self) -> Vec<&egui::TextureHandle> {
-        APPS.iter().filter_map(|(id, _)| self.apps.get(id)).collect()
+        APPS.iter().filter_map(|(id, _)| self.apps.get(*id)).collect()
+    }
+
+    pub fn has_app(&self, id: &str) -> bool {
+        self.apps.contains_key(id)
+    }
+
+    /// Add an icon read from an installed app (see `Installer::external_icon`).
+    pub fn add_app_icon(&mut self, ctx: &egui::Context, id: &str, icon: creativecraft_install::IconData) {
+        let img = match icon {
+            creativecraft_install::IconData::Png(bytes) => match image::load_from_memory_with_format(&bytes, image::ImageFormat::Png) {
+                Ok(i) => {
+                    let i = if i.width() > 256 { i.thumbnail(256, 256) } else { i };
+                    let rgba = i.to_rgba8();
+                    egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw())
+                }
+                Err(e) => {
+                    log::warn!("{id}'s icon didn't decode: {e}");
+                    return;
+                }
+            },
+            creativecraft_install::IconData::Svg(bytes) => match rasterize_svg(&bytes, 256) {
+                Some(i) => i,
+                None => return,
+            },
+        };
+        self.apps.insert(id.to_string(), ctx.load_texture(format!("app/{id}"), img, egui::TextureOptions::LINEAR));
     }
 
     pub fn app(&self, id: &str) -> Option<&egui::TextureHandle> {
@@ -125,4 +151,23 @@ pub fn install_fallback_fonts(ctx: &egui::Context) {
             .collect();
         ctx.add_font(FontInsert::new(&format!("system-fallback-{i}"), egui::FontData::from_owned(bytes), families));
     }
+}
+
+/// Rasterise an SVG so its longest side is `px` pixels. System fonts are loaded once, on first
+/// use, so text in project files renders too.
+pub fn rasterize_svg(data: &[u8], px: u32) -> Option<egui::ColorImage> {
+    use resvg::{tiny_skia, usvg};
+    static OPTIONS: std::sync::OnceLock<usvg::Options<'static>> = std::sync::OnceLock::new();
+    let opt = OPTIONS.get_or_init(|| {
+        let mut o = usvg::Options::default();
+        o.fontdb_mut().load_system_fonts();
+        o
+    });
+    let tree = usvg::Tree::from_data(data, opt).ok()?;
+    let size = tree.size();
+    let scale = px as f32 / size.width().max(size.height()).max(1.0);
+    let (w, h) = (((size.width() * scale).ceil() as u32).max(1), ((size.height() * scale).ceil() as u32).max(1));
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    Some(egui::ColorImage::from_rgba_premultiplied([w as usize, h as usize], pixmap.data()))
 }

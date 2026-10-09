@@ -39,6 +39,16 @@ them inline and prints progress to stderr; the MCP server runs them for the agen
 4. Unpack into `apps/<id>/.staging-<tag>`, rename to `apps/<id>/<tag>`, find the `gui` and
    `cli` executables, write `apps/installed.json`, then delete the previous version.
 
+`settings.app_sources` can change where an app comes from (`install::Source`):
+
+- **Fork**: the same steps against `<fork owner>/<name>`'s latest release.
+- **Git**: with the user's own `git` and `cargo`, shallow-clone (or fetch and reset) the
+  repository into `src/<id>/<key>/`, run `cargo build --release -p <gui> -p <cli>` with
+  `CARGO_TARGET_DIR=build/<id>/<key>/` (falling back to the workspace's default build if a fork
+  names its packages differently), copy the two executables to `apps/<id>/git-<rev>/` and register
+  them like a release. Build output streams to the UI as `Progress::Building` / `Progress::Log`.
+  Uninstalling removes the checkout and build cache too.
+
 ## Sync
 
 `sync-plan` compares **local**, **remote** and **base** (the state after the last good sync):
@@ -84,6 +94,13 @@ turns with `start_turn`. Either way the backend CLI runs as a child process in t
 and connects back to the hub through a fresh `creativecraft-cli mcp` process, so everything the
 agent does still goes through engine commands. Syncs take a lock file (`<projects>/.creativecraft/sync.lock`) because the window, the
 CLI and the agent's hub process can each start one.
+
+## Projects page
+
+`creativecraft_engine::projects::scan` walks the projects folder (skipping hidden folders and
+`.creativecraft/`, bounded in depth and file count) for files whose extension some catalog app lists
+in `opens`; `projects::thumbnail` reads a preview from the file itself with size limits. The window
+runs both on background threads and caches decoded previews by path and modification time.
 
 ## On disk
 

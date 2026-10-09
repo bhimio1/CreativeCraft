@@ -8,7 +8,9 @@
 
 mod assets;
 mod assistant;
+mod projects;
 mod settings;
+mod sources;
 mod splash;
 mod terminal;
 mod theme;
@@ -23,6 +25,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Apps,
+    Projects,
     Files,
     Assistant,
     Settings,
@@ -38,6 +41,8 @@ struct Row {
     homepage: String,
     kind: Kind,
     status: Status,
+    /// Where the installed copy came from, when not the official releases.
+    source: Option<String>,
 }
 
 enum Msg {
@@ -61,7 +66,13 @@ pub struct CreativeCraftApp {
     rx: Receiver<Msg>,
     busy: Option<String>,
     /// (app id, fraction, label) while an install runs.
+    /// (app id, fraction or negative when unknown, label) while an install or build runs.
     install_progress: Option<(String, f32, String)>,
+    /// Recent git and cargo output from the current or last git build.
+    build_log: Vec<String>,
+    /// External apps whose installed icon has been looked for.
+    icons_tried: std::collections::HashSet<String>,
+    source_dialog: Option<sources::SourceDraft>,
     sync_progress: Option<f32>,
     /// Last result line, shown briefly in the top bar.
     last: Option<(bool, String, f64)>,
@@ -71,6 +82,7 @@ pub struct CreativeCraftApp {
     last_auto_sync: f64,
     settings_section: settings::Section,
     assistant: assistant::AssistantState,
+    projects: projects::ProjectsState,
     splash: splash::Splash,
 }
 
@@ -100,6 +112,9 @@ impl CreativeCraftApp {
             rx,
             busy: None,
             install_progress: None,
+            build_log: Vec::new(),
+            icons_tried: Default::default(),
+            source_dialog: None,
             sync_progress: None,
             last: None,
             log: Vec::new(),
@@ -108,6 +123,7 @@ impl CreativeCraftApp {
             last_auto_sync: 0.0,
             settings_section: settings::Section::General,
             assistant: assistant::AssistantState::default(),
+            projects: projects::ProjectsState::default(),
             splash,
         };
         app.refresh();
@@ -115,6 +131,12 @@ impl CreativeCraftApp {
         #[cfg(debug_assertions)]
         match std::env::var("CREATIVECRAFT_DEBUG_PAGE").as_deref() {
             Ok("files") => app.page = Page::Files,
+            Ok("projects") => app.page = Page::Projects,
+            Ok(p) if p.starts_with("source:") => {
+                if let Some(r) = app.rows.iter().find(|r| r.id == p["source:".len()..]) {
+                    app.source_dialog = Some(sources::SourceDraft::for_row(r, &app.draft));
+                }
+            }
             Ok("assistant") => app.page = Page::Assistant,
             Ok("settings") => app.page = Page::Settings,
             Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") => {
@@ -146,9 +168,22 @@ impl CreativeCraftApp {
                 homepage: a.homepage.clone(),
                 kind: a.kind,
                 status: s.status(a),
+                source: s.installed(&a.id).and_then(|i| i.source.clone()),
             })
             .collect();
         self.signed_in = s.google_signed_in();
+        // installed external apps show the icon they ship with (looked up once per app)
+        let wanted: Vec<_> = s
+            .catalog
+            .apps
+            .iter()
+            .filter(|a| a.kind == Kind::External && !self.tex.has_app(&a.id) && self.icons_tried.insert(a.id.clone()))
+            .filter_map(|a| s.installer.external_icon(a).map(|i| (a.id.clone(), i)))
+            .collect();
+        drop(s);
+        for (id, icon) in wanted {
+            self.tex.add_app_icon(&self.ctx, &id, icon);
+        }
     }
 
     fn run(&mut self, label: impl Into<String>, cmd: Command) {
@@ -189,6 +224,19 @@ impl CreativeCraftApp {
                         Progress::Downloading { done, .. } => (0.5, format!("{:.0} MB", done as f64 / 1e6)),
                         Progress::Verifying => (1.0, "Verifying…".into()),
                         Progress::Unpacking => (1.0, "Installing…".into()),
+                        Progress::Fetching => {
+                            self.build_log.clear();
+                            (-1.0, "Getting the source…".into())
+                        }
+                        Progress::Building { crates: 0, .. } => (-1.0, "Building…".into()),
+                        Progress::Building { crates, current } => (-1.0, format!("Building · {crates} crates · {current}")),
+                        Progress::Log(line) => {
+                            self.build_log.push(line);
+                            if self.build_log.len() > 400 {
+                                self.build_log.remove(0);
+                            }
+                            continue;
+                        }
                         Progress::Done => (1.0, "Done".into()),
                     };
                     self.install_progress = Some((id, f, label));
@@ -198,6 +246,7 @@ impl CreativeCraftApp {
                 }
                 Msg::Done(label, r) => {
                     self.busy = None;
+                    self.projects.mark_stale();
                     self.install_progress = None;
                     self.sync_progress = None;
                     let entry = match r {
@@ -246,7 +295,7 @@ impl CreativeCraftApp {
             .exact_size(200.0)
             .frame(egui::Frame::NONE.fill(t.bar).inner_margin(egui::Margin { left: 10, right: 10, top: 14, bottom: 10 }))
             .show(ui, |ui| {
-                for (page, label) in [(Page::Apps, "Apps"), (Page::Files, "Files"), (Page::Assistant, "Assistant")] {
+                for (page, label) in [(Page::Apps, "Apps"), (Page::Projects, "Projects"), (Page::Files, "Files"), (Page::Assistant, "Assistant")] {
                     self.nav_item(ui, page, label);
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -256,9 +305,10 @@ impl CreativeCraftApp {
             });
 
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.bg).inner_margin(egui::Margin::symmetric(32, 24))).show(ui, |ui| {
-            // the terminal and the settings page lay out (and scroll) themselves
+            // the terminal, the projects grid and the settings page lay out (and scroll) themselves
             match self.page {
                 Page::Assistant => self.assistant_page(ui),
+                Page::Projects => self.projects_page(ui),
                 Page::Settings => self.settings_page(ui),
                 Page::Apps | Page::Files => {
                     egui::ScrollArea::vertical().auto_shrink(false).show(
@@ -273,6 +323,9 @@ impl CreativeCraftApp {
         if self.page != Page::Settings && self.draft != self.saved {
             // left the page (or toggled the theme) with an edit pending
             self.save_draft();
+        }
+        if self.source_dialog.is_some() {
+            self.source_dialog_ui(ui.ctx().clone());
         }
         self.splash.show(ui.ctx(), &self.tex);
     }
@@ -321,8 +374,10 @@ impl CreativeCraftApp {
 
             // search, roughly centred
             ui.add_space((ui.available_width() / 2.0 - 220.0).max(16.0));
-            ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("🔍  Search apps").desired_width(320.0).margin(vec2(10.0, 6.0)));
-            if !self.search.is_empty() && self.page != Page::Apps {
+            // searches projects on the Projects page, apps everywhere else
+            let hint = if self.page == Page::Projects { "🔍  Search projects" } else { "🔍  Search apps" };
+            ui.add(egui::TextEdit::singleline(&mut self.search).hint_text(hint).desired_width(320.0).margin(vec2(10.0, 6.0)));
+            if !self.search.is_empty() && !matches!(self.page, Page::Apps | Page::Projects) {
                 self.page = Page::Apps;
             }
 
@@ -415,8 +470,13 @@ impl CreativeCraftApp {
         row.vertical(|ui| {
             ui.add_space(12.0);
             ui.label(RichText::new(&r.name).size(15.0).strong().color(t.ink)).on_hover_text(&r.summary);
-            let sub = match &r.status {
-                Status::Installed { version } => format!("{} · {}", r.category, version.trim_start_matches('v')),
+            let configured = self.draft.app_sources.get(&r.id).filter(|s| **s != creativecraft_engine::Source::Release);
+            let sub = match (&r.status, &r.source) {
+                (Status::Installed { version }, Some(src)) => format!("{} · {} · {src}", r.category, version.trim_start_matches('v')),
+                (Status::Installed { version }, None) => format!("{} · {}", r.category, version.trim_start_matches('v')),
+                (Status::NotInstalled, _) if configured.is_some() => {
+                    format!("{} · installs from {}", r.category, configured.map(|s| s.label()).unwrap_or_default())
+                }
                 _ => r.category.clone(),
             };
             ui.label(RichText::new(sub).size(12.0).color(t.muted));
@@ -427,8 +487,17 @@ impl CreativeCraftApp {
             if let Some((id, f, label)) = &self.install_progress
                 && *id == r.id
             {
-                ui.label(RichText::new(label).size(12.0).color(t.muted));
-                ui.add(egui::ProgressBar::new(*f).desired_width(140.0).desired_height(6.0));
+                if *f < 0.0 {
+                    // a git build: no total to measure against; offer its log instead
+                    if ui.add(egui::Button::new(RichText::new("Log").size(12.0)).frame(false)).on_hover_text("Show the build output").clicked() {
+                        self.source_dialog = Some(sources::SourceDraft::for_row(r, &self.draft));
+                    }
+                    ui.label(RichText::new(label).size(12.0).color(t.muted));
+                    ui.spinner();
+                } else {
+                    ui.label(RichText::new(label).size(12.0).color(t.muted));
+                    ui.add(egui::ProgressBar::new(*f).desired_width(140.0).desired_height(6.0));
+                }
                 return;
             }
             // every app gets the same menu; what's in it depends on how it's installed
@@ -460,6 +529,12 @@ impl CreativeCraftApp {
         ui.menu_button(RichText::new("…").size(16.0), |ui| {
             if installed && ui.add_enabled(idle, egui::Button::new("Check for update")).clicked() {
                 self.run(format!("Update {}", r.name), Command::Install(r.id.clone()));
+                ui.close();
+            }
+            if r.kind == Kind::Release
+                && ui.add_enabled(idle, egui::Button::new("Install source…")).on_hover_text("Official releases, a fork, or a git build").clicked()
+            {
+                self.source_dialog = Some(sources::SourceDraft::for_row(r, &self.draft));
                 ui.close();
             }
             if ui.button("Website").clicked() {

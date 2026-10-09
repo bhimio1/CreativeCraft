@@ -3,9 +3,10 @@
 //! Layout under the data folder (see [`HubDirs`]):
 //!
 //! ```text
-//! apps/<id>/<version>/…        unpacked release archive (one folder per installed version)
+//! apps/<id>/<version>/…        unpacked release archive or git build (one folder per installed version)
 //! apps/installed.json          which version of each app is current, and where its executables are
 //! downloads/                   in-flight downloads (`*.part`), removed after unpacking
+//! src/<id>/…, build/<id>/…     git checkouts and their build caches (see [`Source`])
 //! ```
 //!
 //! Everything is per-user and needs no admin rights. Nothing is ever re-hosted: archives come from
@@ -16,13 +17,17 @@
 mod dirs;
 mod external;
 mod github;
+mod icons;
 mod registry;
+mod source;
 mod unpack;
 
 pub use dirs::HubDirs;
 pub use external::detect_external;
 pub use github::{Asset, Release};
+pub use icons::IconData;
 pub use registry::{Installed, Registry};
+pub use source::Source;
 
 use creativecraft_catalog::{AppSpec, Kind};
 use creativecraft_platform::Host;
@@ -49,17 +54,35 @@ pub enum InstallError {
     NotInstalled(String),
     #[error("{0} can't be installed by the hub; get it from its official site")]
     External(String),
-    #[error("couldn't find the `{exe}` executable inside {app}'s download")]
+    #[error("couldn't find the `{exe}` executable inside {app}'s download or build")]
     MissingExe { app: String, exe: String },
+    #[error("{0}")]
+    Source(String),
+    #[error("building from git needs `{tool}`: {hint}")]
+    MissingTool { tool: String, hint: &'static str },
+    #[error("{0}")]
+    Build(String),
 }
 
 /// Progress of a long operation, for the UI.
 #[derive(Debug, Clone)]
 pub enum Progress {
     Resolving,
-    Downloading { done: u64, total: Option<u64> },
+    Downloading {
+        done: u64,
+        total: Option<u64>,
+    },
     Verifying,
     Unpacking,
+    /// Cloning or updating a git checkout.
+    Fetching,
+    /// Compiling: crates compiled so far and the one just started.
+    Building {
+        crates: usize,
+        current: String,
+    },
+    /// A line of git or cargo output, for a log view.
+    Log(String),
     Done,
 }
 
@@ -103,10 +126,29 @@ impl Installer {
         }
     }
 
+    /// The icon an installed external app ships with (read from its own installation).
+    pub fn external_icon(&self, app: &AppSpec) -> Option<IconData> {
+        let exe = detect_external(app, self.host)?;
+        icons::installed_icon(app, &exe, self.host)
+    }
+
     /// The newest release of a release-kind app.
     pub fn latest(&self, app: &AppSpec) -> Result<Release, InstallError> {
         let repo = app.repo.as_deref().ok_or_else(|| InstallError::External(app.name.clone()))?;
         github::latest_release(repo)
+    }
+
+    /// Install (or update) from `source`: official releases, a fork's releases, or a git build.
+    pub fn install_from(&mut self, app: &AppSpec, source: &Source, progress: &mut dyn FnMut(Progress)) -> Result<Installed, InstallError> {
+        if app.kind == Kind::External {
+            return Err(InstallError::External(app.name.clone()));
+        }
+        source.validate()?;
+        match source {
+            Source::Release => self.install(app, progress),
+            Source::Fork { repo } => self.install_release(app, repo, Some(format!("fork {repo}")), progress),
+            Source::Git { url, branch } => self.install_git(app, url, branch, progress),
+        }
     }
 
     /// `Some(new_tag)` if a newer release than the installed one exists.
@@ -119,11 +161,16 @@ impl Installer {
     /// Install (or update to) the latest release. Older versions are removed after the new one is
     /// in place, so a failed update leaves the working version untouched.
     pub fn install(&mut self, app: &AppSpec, progress: &mut dyn FnMut(Progress)) -> Result<Installed, InstallError> {
+        let repo = app.repo.clone().ok_or_else(|| InstallError::External(app.name.clone()))?;
+        self.install_release(app, &repo, None, progress)
+    }
+
+    fn install_release(&mut self, app: &AppSpec, repo: &str, source: Option<String>, progress: &mut dyn FnMut(Progress)) -> Result<Installed, InstallError> {
         if app.kind == Kind::External {
             return Err(InstallError::External(app.name.clone()));
         }
         progress(Progress::Resolving);
-        let release = self.latest(app)?;
+        let release = github::latest_release(repo)?;
         let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
         let picked =
             creativecraft_platform::pick_asset(&names, self.host).ok_or_else(|| InstallError::NoAsset { app: app.name.clone(), tag: release.tag.clone() })?;
@@ -162,7 +209,7 @@ impl Installer {
                 }
             }
         };
-        let installed = Installed { version: release.tag.clone(), dir: version_dir.clone(), gui: find(&app.gui)?, cli: find(&app.cli)? };
+        let installed = Installed { version: release.tag.clone(), dir: version_dir.clone(), gui: find(&app.gui)?, cli: find(&app.cli)?, source };
 
         let previous = self.registry.set(&app.id, installed.clone());
         self.registry.save(&self.dirs.registry_file())?;
@@ -177,6 +224,7 @@ impl Installer {
         let gone = self.registry.remove(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
         self.registry.save(&self.dirs.registry_file())?;
         let _ = std::fs::remove_dir_all(self.dirs.apps().join(&app.id));
+        self.remove_git_caches(&app.id);
         drop(gone);
         Ok(())
     }

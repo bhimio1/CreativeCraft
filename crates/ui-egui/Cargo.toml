@@ -20,3 +20,4 @@ open = { workspace = true }
 image = { workspace = true }
 portable-pty = { workspace = true }
 vt100 = { workspace = true }
+resvg = { workspace = true }

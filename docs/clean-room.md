@@ -43,6 +43,13 @@ advice; have a lawyer review before a commercial launch.
 The current build uses the ArtCraft wordmark, mark and the Craft app icons, for a presentation to
 the ArtCraft Team. That use needs their written permission before any public release (see NOTICE).
 
+## Other apps' icons
+
+CreativeCraft bundles no third-party app icons. An external app that is installed shows the icon
+its own installation provides, read at runtime the way any launcher does (`.desktop` entry and
+icon theme on Linux, the bundle's `.icns` on macOS); one that isn't installed gets a plain letter
+tile.
+
 ## Trade dress: our own design
 
 - The layout follows the common creative-suite launcher pattern (top bar with search, short

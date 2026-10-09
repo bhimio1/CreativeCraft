@@ -5,11 +5,13 @@
 //! there is exactly one implementation of each action.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+pub mod projects;
 mod report;
 mod settings;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
+pub use creativecraft_install::Source;
 pub use settings::{Appearance, CloudChoice, CustomMcp, Settings};
 
 use creativecraft_catalog::{AppSpec, Catalog, Kind};
@@ -113,6 +115,16 @@ impl Session {
         self.installer.status(app)
     }
 
+    /// Where `id` installs from (its official releases unless Settings say otherwise).
+    pub fn source(&self, id: &str) -> creativecraft_install::Source {
+        self.settings.app_sources.get(id).cloned().unwrap_or_default()
+    }
+
+    /// What is installed for `id`, if the hub installed it.
+    pub fn installed(&self, id: &str) -> Option<&creativecraft_install::Installed> {
+        self.installer.registry.get(id)
+    }
+
     /// Where "Report a bug" goes for an app (`Some(id)`) or for CreativeCraft (`None`).
     pub fn bug_report_url(&self, id: Option<&str>) -> Result<String, EngineError> {
         let Some(id) = id else { return Ok(report::bug_report_url(None, None)) };
@@ -150,8 +162,10 @@ impl Session {
         match cmd {
             Command::Install(id) => {
                 let app = self.app(&id)?;
-                let i = self.installer.install(&app, &mut |p| events(Event::Install(id.clone(), p)))?;
-                Ok(format!("{} {} installed", app.name, i.version))
+                let source = self.source(&id);
+                let i = self.installer.install_from(&app, &source, &mut |p| events(Event::Install(id.clone(), p)))?;
+                let from = i.source.as_deref().map(|s| format!(" from {s}")).unwrap_or_default();
+                Ok(format!("{} {} installed{from}", app.name, i.version))
             }
             Command::Uninstall(id) => {
                 let app = self.app(&id)?;

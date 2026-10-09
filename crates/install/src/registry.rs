@@ -9,6 +9,10 @@ pub struct Installed {
     pub dir: PathBuf,
     pub gui: Option<PathBuf>,
     pub cli: Option<PathBuf>,
+    /// Where it came from, when not the official releases: "fork alice/photocraft",
+    /// "git alice/photocraft (dev)".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// `apps/installed.json`: app id → what is installed.

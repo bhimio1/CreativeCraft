@@ -1,5 +1,7 @@
 use creativecraft_agent::AgentSettings;
+use creativecraft_install::Source;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Where cloud saves go.
@@ -50,6 +52,8 @@ pub struct Settings {
     /// The assistant: which agent CLI runs it, and how.
     pub agent: AgentSettings,
     pub appearance: Appearance,
+    /// Where each app installs from, when not its official releases (app id → source).
+    pub app_sources: BTreeMap<String, Source>,
     /// Play the short start-up animation when the window opens.
     pub intro_animation: bool,
 }
@@ -66,6 +70,7 @@ impl Default for Settings {
             custom_mcp: Vec::new(),
             agent: AgentSettings::default(),
             appearance: Appearance::System,
+            app_sources: BTreeMap::new(),
             intro_animation: true,
         }
     }

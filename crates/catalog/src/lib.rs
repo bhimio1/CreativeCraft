@@ -40,6 +40,10 @@ pub struct AppSpec {
     /// their project's own tracker.
     #[serde(default)]
     pub bugs: Option<String>,
+    /// File extensions (lowercase, no dot) this app opens; the first is its own project format.
+    /// The Projects page uses them to pick an app and an icon for each file.
+    #[serde(default)]
+    pub opens: Vec<String>,
 
     // kind = "release"
     /// `owner/name` on GitHub.
@@ -100,6 +104,9 @@ impl AppSpec {
                 }
             }
         }
+        if self.opens.iter().any(|e| e.is_empty() || e.starts_with('.') || e.chars().any(|c| c.is_ascii_uppercase())) {
+            return bad("opens lists lowercase extensions without the dot");
+        }
         if self.mcp.is_some() && self.cli.is_none() {
             return bad("mcp needs a cli executable to run");
         }
@@ -144,6 +151,15 @@ impl Catalog {
 
     pub fn get(&self, id: &str) -> Option<&AppSpec> {
         self.apps.iter().find(|a| a.id == id)
+    }
+
+    /// Apps that open files with extension `ext` (any case), in catalog order: an app whose own
+    /// project format it is comes first.
+    pub fn apps_for_extension(&self, ext: &str) -> Vec<&AppSpec> {
+        let ext = ext.to_ascii_lowercase();
+        let mut apps: Vec<&AppSpec> = self.apps.iter().filter(|a| a.opens.contains(&ext)).collect();
+        apps.sort_by_key(|a| a.opens.first() != Some(&ext));
+        apps
     }
 }
 

@@ -10,6 +10,9 @@
 # `bugs` is where "Report a bug" goes: release apps default to their repo's GitHub issues (pre-filled
 # with the app and system details); external apps name their project's own tracker.
 #
+# `opens` lists the file extensions an app opens, its own project format first; the Projects page
+# uses it to pick the app (and icon) for each file.
+#
 # `mcp` is the argument list that makes `cli` speak MCP (JSON-RPC 2.0, one message per line on
 # stdio). Every Craft app uses `<app>-cli mcp`. Extra MCP servers (for example a Blender add-on
 # bridge) are added by the user in settings, not here.
@@ -31,6 +34,7 @@ cli = "photocraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/photocraft"
+opens = ["pcraft", "psd", "psb", "png", "jpg", "jpeg", "webp", "tif", "tiff", "gif", "bmp", "tga", "qoi"]
 
 [[app]]
 id = "vectorcraft"
@@ -44,6 +48,7 @@ cli = "vectorcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/vectorcraft"
+opens = ["vectorcraft", "svg"]
 
 [[app]]
 id = "filmcraft"
@@ -57,6 +62,7 @@ cli = "filmcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/filmcraft"
+opens = ["fcproj"]
 
 [[app]]
 id = "lightcraft"
@@ -70,6 +76,7 @@ cli = "lightcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/lightcraft"
+opens = ["dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2"]
 
 [[app]]
 id = "printcraft"
@@ -83,6 +90,7 @@ cli = "pdfcraft-cli"
 mcp = ["mcp"] # needs a build with the `mcp` feature; the hub reports it if the binary lacks it
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/pdfcraft"
+opens = ["pdf"]
 
 [[app]]
 id = "effectcraft"
@@ -96,6 +104,7 @@ cli = "effectcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/effectcraft"
+opens = ["ecproj"]
 
 [[app]]
 id = "designcraft"
@@ -109,6 +118,7 @@ cli = "designcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/designcraft"
+opens = ["designcraft"]
 
 [[app]]
 id = "cadcraft"
@@ -122,6 +132,7 @@ cli = "cadcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/cadcraft"
+opens = ["dxf", "dwg"]
 
 [[app]]
 id = "soundcraft"
@@ -135,6 +146,7 @@ cli = "soundcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/soundcraft"
+opens = ["scraft", "wav", "flac", "aif", "aiff", "mp3", "mid"]
 
 [[app]]
 id = "wordcraft"
@@ -148,6 +160,7 @@ cli = "wordcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/wordcraft"
+opens = ["docx", "odt", "rtf", "md"]
 
 [[app]]
 id = "gridcraft"
@@ -161,6 +174,7 @@ cli = "gridcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/gridcraft"
+opens = ["xlsx", "xlsm", "csv", "tsv"]
 
 [[app]]
 id = "deckcraft"
@@ -174,6 +188,7 @@ cli = "deckcraft-cli"
 mcp = ["mcp"]
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/deckcraft"
+opens = ["deckcraft", "pptx"]
 
 # ───────────────────────── Other open-source apps (detected, not bundled) ─────────────────────────
 
@@ -188,6 +203,7 @@ mac_bundle = "Blender.app"
 windows_dirs = ["Blender Foundation"]
 license = "GPL-2.0-or-later"
 homepage = "https://www.blender.org/download/"
+opens = ["blend"]
 bugs = "https://projects.blender.org/blender/blender/issues"
 
 [[app]]
@@ -201,6 +217,7 @@ mac_bundle = "krita.app"
 windows_dirs = ["Krita (x64)"]
 license = "GPL-3.0-or-later"
 homepage = "https://krita.org/en/download/"
+opens = ["kra", "ora"]
 bugs = "https://bugs.kde.org/enter_bug.cgi?product=krita"
 
 [[app]]
@@ -227,6 +244,7 @@ mac_bundle = "GIMP.app"
 windows_dirs = ["GIMP 3", "GIMP 2"]
 license = "GPL-3.0-or-later"
 homepage = "https://www.gimp.org/downloads/"
+opens = ["xcf"]
 bugs = "https://gitlab.gnome.org/GNOME/gimp/-/issues"
 
 [[app]]
@@ -240,6 +258,7 @@ mac_bundle = "kdenlive.app"
 windows_dirs = ["kdenlive"]
 license = "GPL-3.0-or-later"
 homepage = "https://kdenlive.org/en/download/"
+opens = ["kdenlive"]
 bugs = "https://bugs.kde.org/enter_bug.cgi?product=kdenlive"
 
 [[app]]
