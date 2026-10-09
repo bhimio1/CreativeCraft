@@ -35,7 +35,8 @@ pub struct Terminal {
 impl Terminal {
     pub fn spawn(spec: &LaunchSpec, ctx: &egui::Context) -> Result<Terminal, String> {
         let (rows, cols) = (24, 80);
-        let pair = native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("couldn't open a terminal: {e}"))?;
+        let pair =
+            native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("couldn't open a terminal: {e}"))?;
         let mut cmd = CommandBuilder::new(&spec.program);
         cmd.args(&spec.args);
         cmd.cwd(&spec.cwd);
@@ -115,9 +116,7 @@ impl Terminal {
         let focused = resp.has_focus();
         if resp.has_focus() {
             // keep Tab, arrows and Escape for the program, not egui's focus navigation
-            ui.memory_mut(|m| {
-                m.set_focus_lock_filter(resp.id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true })
-            });
+            ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true }));
         }
         let cell_at = |p: Pos2| -> (u16, u16) {
             let c = ((p.x - inner.left()) / cw).floor().clamp(0.0, f32::from(cols - 1)) as u16;
@@ -421,12 +420,12 @@ fn term_fg(t: &theme::Tokens) -> Color32 {
 /// CreativeCraft's 16-colour palette, tuned to read on each theme's terminal background.
 fn ansi16(i: u8) -> Color32 {
     const DARK: [u32; 16] = [
-        0x2a2a2a, 0xe06c62, 0x8cc68a, 0xdcbc6c, 0x6fa3e0, 0xc08ad8, 0x6cc4c0, 0xd8d6cf, 0x6b6a66, 0xf08a80, 0xa6dca4, 0xf0d488, 0x8fbcf0, 0xd6a6ec,
-        0x8adcd8, 0xf6f5f0,
+        0x2a2a2a, 0xe06c62, 0x8cc68a, 0xdcbc6c, 0x6fa3e0, 0xc08ad8, 0x6cc4c0, 0xd8d6cf, 0x6b6a66, 0xf08a80, 0xa6dca4, 0xf0d488, 0x8fbcf0, 0xd6a6ec, 0x8adcd8,
+        0xf6f5f0,
     ];
     const LIGHT: [u32; 16] = [
-        0x2b2b29, 0xb8382e, 0x2e7d3c, 0x8a6a10, 0x2a5fb0, 0x8a3fa8, 0x1e7a78, 0xd0cec6, 0x6a6963, 0xd04a3e, 0x3a9a4c, 0xa88420, 0x3a74cc, 0xa456c4,
-        0x2a9490, 0xf6f5f1,
+        0x2b2b29, 0xb8382e, 0x2e7d3c, 0x8a6a10, 0x2a5fb0, 0x8a3fa8, 0x1e7a78, 0xd0cec6, 0x6a6963, 0xd04a3e, 0x3a9a4c, 0xa88420, 0x3a74cc, 0xa456c4, 0x2a9490,
+        0xf6f5f1,
     ];
     let v = if theme::is_dark() { DARK } else { LIGHT }[usize::from(i & 15)];
     Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)

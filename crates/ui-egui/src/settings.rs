@@ -119,7 +119,11 @@ impl CreativeCraftApp {
     fn settings_appearance(&mut self, ui: &mut egui::Ui) {
         theme::card(ui, |ui| {
             theme::setting_row(ui, "Theme", "Match system follows your computer's light or dark setting.", |ui| {
-                theme::segmented(ui, &mut self.draft.appearance, &[(Appearance::System, "Match system"), (Appearance::Light, "Light"), (Appearance::Dark, "Dark")]);
+                theme::segmented(
+                    ui,
+                    &mut self.draft.appearance,
+                    &[(Appearance::System, "Match system"), (Appearance::Light, "Light"), (Appearance::Dark, "Dark")],
+                );
             });
             theme::row_divider(ui);
             theme::setting_row(ui, "Intro animation", "Plays for about two seconds when CreativeCraft opens. Click to skip it.", |ui| {
@@ -157,15 +161,20 @@ impl CreativeCraftApp {
             match &mut self.draft.cloud {
                 CloudChoice::GoogleDrive { client_id, client_secret } => {
                     theme::row_divider(ui);
-                    theme::setting_row(ui, "Account", if signed_in { "Signed in. CreativeCraft can only see files it created." } else { "Not signed in." }, |ui| {
-                        if signed_in {
-                            if ui.add_enabled(idle, theme::secondary("Sign out")).clicked() {
-                                action = Some(("Sign out", Command::SignOutGoogle));
+                    theme::setting_row(
+                        ui,
+                        "Account",
+                        if signed_in { "Signed in. CreativeCraft can only see files it created." } else { "Not signed in." },
+                        |ui| {
+                            if signed_in {
+                                if ui.add_enabled(idle, theme::secondary("Sign out")).clicked() {
+                                    action = Some(("Sign out", Command::SignOutGoogle));
+                                }
+                            } else if ui.add_enabled(idle && !client_id.is_empty(), theme::primary("Sign in")).clicked() {
+                                action = Some(("Sign in", Command::SignInGoogle));
                             }
-                        } else if ui.add_enabled(idle && !client_id.is_empty(), theme::primary("Sign in")).clicked() {
-                            action = Some(("Sign in", Command::SignInGoogle));
-                        }
-                    });
+                        },
+                    );
                     theme::row_divider(ui);
                     theme::setting_row(ui, "OAuth client", "The publisher's Desktop-app client ID and secret.", |ui| {
                         ui.vertical(|ui| {
@@ -216,7 +225,12 @@ impl CreativeCraftApp {
                     let (rect, resp) = ui.allocate_exact_size(vec2(card_w, 64.0), egui::Sense::click());
                     let fill = if resp.hovered() { t.row_hover } else { t.row };
                     ui.painter().rect_filled(rect, 12.0, fill);
-                    ui.painter().rect_stroke(rect, 12.0, egui::Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.ink } else { t.line }), egui::StrokeKind::Inside);
+                    ui.painter().rect_stroke(
+                        rect,
+                        12.0,
+                        egui::Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.ink } else { t.line }),
+                        egui::StrokeKind::Inside,
+                    );
                     ui.painter().text(rect.left_top() + vec2(14.0, 14.0), egui::Align2::LEFT_TOP, b.name(), egui::FontId::proportional(14.0), t.ink);
                     let (dot, text) = match &status {
                         BackendStatus::Found(_) => (t.ok, "Installed"),
@@ -362,11 +376,16 @@ impl CreativeCraftApp {
                 }
             });
             theme::row_divider(ui);
-            theme::setting_row(ui, "Report a bug", "Opens a new issue with your CreativeCraft version and system filled in. Nothing is sent until you submit it.", |ui| {
-                if ui.add_enabled(self.busy.is_none(), theme::secondary("Report a bug")).clicked() {
-                    self.run("Report a bug", Command::ReportBug(None));
-                }
-            });
+            theme::setting_row(
+                ui,
+                "Report a bug",
+                "Opens a new issue with your CreativeCraft version and system filled in. Nothing is sent until you submit it.",
+                |ui| {
+                    if ui.add_enabled(self.busy.is_none(), theme::secondary("Report a bug")).clicked() {
+                        self.run("Report a bug", Command::ReportBug(None));
+                    }
+                },
+            );
             theme::row_divider(ui);
             ui.add_space(10.0);
             ui.label(

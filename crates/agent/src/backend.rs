@@ -441,8 +441,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cc-agent-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let hub = McpServer { command: "cc".into(), args: vec!["mcp".into()] };
-        let settings =
-            crate::AgentSettings { backend: Backend::Custom, custom_command: "mytool --mcp {mcp_config} {prompt} -i".into(), ..Default::default() };
+        let settings = crate::AgentSettings { backend: Backend::Custom, custom_command: "mytool --mcp {mcp_config} {prompt} -i".into(), ..Default::default() };
         let spec = interactive(&session(&settings, &dir, &hub)).unwrap();
         assert_eq!(spec.program, "mytool");
         assert_eq!(spec.args, vec!["--mcp".to_string(), dir.join("mcp.json").display().to_string(), "-i".into()]);

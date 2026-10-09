@@ -111,8 +111,10 @@ impl CreativeCraftApp {
             });
         });
         ui.add_space(4.0);
-        ui.label(RichText::new("Runs in your projects folder with CreativeCraft's tools. Your agent uses its own account and model.").size(12.0).color(t.muted))
-            .on_hover_text(self.draft.projects_dir.display().to_string());
+        ui.label(
+            RichText::new("Runs in your projects folder with CreativeCraft's tools. Your agent uses its own account and model.").size(12.0).color(t.muted),
+        )
+        .on_hover_text(self.draft.projects_dir.display().to_string());
         ui.add_space(12.0);
 
         // ── body

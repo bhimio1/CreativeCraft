@@ -261,9 +261,12 @@ impl CreativeCraftApp {
                 Page::Assistant => self.assistant_page(ui),
                 Page::Settings => self.settings_page(ui),
                 Page::Apps | Page::Files => {
-                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                        if self.page == Page::Apps { self.apps_page(ui) } else { self.files_page(ui) }
-                    });
+                    egui::ScrollArea::vertical().auto_shrink(false).show(
+                        ui,
+                        |ui| {
+                            if self.page == Page::Apps { self.apps_page(ui) } else { self.files_page(ui) }
+                        },
+                    );
                 }
             }
         });
