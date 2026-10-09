@@ -47,3 +47,14 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 CREATIVECRAFT_HOME=/tmp/at cargo run -p creativecraft-cli -- list   # isolated data folder
 ```
+
+Before every commit, run `cargo fmt --all` and `cargo clippy --all-targets -- -D warnings`: CI
+fails on any formatting difference and stops before building.
+
+## Releasing
+
+1. Bump `version` in the root `Cargo.toml` (and run `cargo check` so `Cargo.lock` follows).
+2. Commit and push to `main`, and wait for CI to pass.
+3. Push a tag `vX.Y.Z` matching the version, or run **Actions → Release → Run workflow** with
+   that tag. The Release workflow builds Linux (x86_64, aarch64), macOS (universal) and Windows,
+   and publishes a pre-release with the archives and `SHA256SUMS`.
