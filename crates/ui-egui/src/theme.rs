@@ -59,7 +59,7 @@ pub fn apply(ctx: &egui::Context) {
     v.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
     v.widgets.active.corner_radius = egui::CornerRadius::same(6);
     ctx.set_visuals(v);
-    ctx.style_mut(|s| {
+    ctx.all_styles_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 8.0);
         s.spacing.button_padding = egui::vec2(14.0, 6.0);
     });
