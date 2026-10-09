@@ -17,8 +17,7 @@ pub struct Tokens {
     pub on_cream: Color32,
     pub danger: Color32,
     pub ok: Color32,
-    // kept for the chat bubbles
-    pub accent: Color32,
+    // chat bubbles
     pub accent_soft: Color32,
     pub card: Color32,
 }
@@ -37,7 +36,6 @@ impl Tokens {
             on_cream: Color32::from_rgb(0x16, 0x16, 0x16),
             danger: Color32::from_rgb(0xe8, 0x6a, 0x5f),
             ok: Color32::from_rgb(0x7f, 0xc4, 0x8c),
-            accent: Color32::from_rgb(0xf0, 0xef, 0xe9),
             accent_soft: Color32::from_rgb(0x33, 0x33, 0x31),
             card: Color32::from_rgb(0x23, 0x23, 0x23),
         }
