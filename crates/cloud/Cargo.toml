@@ -1,0 +1,23 @@
+[package]
+name = "atelier-cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Atelier L2: cloud saves: storage backends (Google Drive, any local/synced folder) and the sync executor"
+
+[lints]
+workspace = true
+
+[dependencies]
+atelier-sync-plan = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+ureq = { workspace = true }
+sha2 = { workspace = true }
+md-5 = { workspace = true }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+open = { workspace = true }

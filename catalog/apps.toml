@@ -1,0 +1,206 @@
+# Atelier app catalog.
+#
+# kind = "release":  the hub downloads the app's portable archive straight from the project's own
+#                    GitHub releases (it never re-hosts anyone's binaries), unpacks it per-user and
+#                    keeps it updated. `gui` / `cli` are executable stems inside the archive.
+# kind = "external": the hub only *detects* an existing install (PATH, macOS bundle, Windows
+#                    Program Files) and links to the project's official download page. Use this for
+#                    apps whose licence or packaging we don't want to redistribute or re-wrap.
+#
+# `mcp` is the argument list that makes `cli` speak MCP (JSON-RPC 2.0, one message per line on
+# stdio). Every Craft app uses `<app>-cli mcp`. Extra MCP servers (for example a Blender add-on
+# bridge) are added by the user in settings, not here.
+#
+# Descriptions say what an app does in generic terms: no third-party trademarks are used to
+# describe our apps or the hub.
+
+# ───────────────────────── Craft apps (MIT OR Apache-2.0) ─────────────────────────
+
+[[app]]
+id = "photocraft"
+name = "PhotoCraft"
+category = "Image"
+summary = "Layered raster image editing: layers, masks, adjustment layers, brushes, text, PSD/PSB round-trip."
+kind = "release"
+repo = "storytold/photocraft"
+gui = "photocraft"
+cli = "photocraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/photocraft"
+
+[[app]]
+id = "vectorcraft"
+name = "VectorCraft"
+category = "Vector"
+summary = "Vector illustration: pen tool, shapes, image tracing, SVG."
+kind = "release"
+repo = "storytold/vectorcraft"
+gui = "vectorcraft"
+cli = "vectorcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/vectorcraft"
+
+[[app]]
+id = "filmcraft"
+name = "FilmCraft"
+category = "Video"
+summary = "Non-linear video editing."
+kind = "release"
+repo = "storytold/filmcraft"
+gui = "filmcraft"
+cli = "filmcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/filmcraft"
+
+[[app]]
+id = "lightcraft"
+name = "LightCraft"
+category = "Photo"
+summary = "Photo library and RAW development."
+kind = "release"
+repo = "storytold/lightcraft"
+gui = "lightcraft"
+cli = "lightcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/lightcraft"
+
+[[app]]
+id = "printcraft"
+name = "PdfCraft"
+category = "Documents"
+summary = "PDF viewing, editing, merging and splitting."
+kind = "release"
+repo = "storytold/printcraft"
+gui = "pdfcraft"
+cli = "pdfcraft-cli"
+mcp = ["mcp"] # needs a build with the `mcp` feature; the hub reports it if the binary lacks it
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/printcraft"
+
+[[app]]
+id = "effectcraft"
+name = "EffectCraft"
+category = "Motion"
+summary = "Motion graphics, compositing and visual effects."
+kind = "release"
+repo = "storytold/effectcraft"
+gui = "effectcraft"
+cli = "effectcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/effectcraft"
+
+[[app]]
+id = "designcraft"
+name = "DesignCraft"
+category = "Layout"
+summary = "Page layout and publishing."
+kind = "release"
+repo = "storytold/designcraft"
+gui = "designcraft"
+cli = "designcraft-cli"
+mcp = ["mcp"]
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/designcraft"
+
+# ───────────────────────── Other open-source apps (detected, not bundled) ─────────────────────────
+
+[[app]]
+id = "blender"
+name = "Blender"
+category = "3D"
+summary = "3D modelling, animation, rendering and compositing."
+kind = "external"
+path_names = ["blender"]
+mac_bundle = "Blender.app"
+windows_dirs = ["Blender Foundation"]
+license = "GPL-2.0-or-later"
+homepage = "https://www.blender.org/download/"
+
+[[app]]
+id = "krita"
+name = "Krita"
+category = "Painting"
+summary = "Digital painting and illustration."
+kind = "external"
+path_names = ["krita"]
+mac_bundle = "krita.app"
+windows_dirs = ["Krita (x64)"]
+license = "GPL-3.0-or-later"
+homepage = "https://krita.org/en/download/"
+
+[[app]]
+id = "inkscape"
+name = "Inkscape"
+category = "Vector"
+summary = "SVG vector graphics editor."
+kind = "external"
+path_names = ["inkscape"]
+mac_bundle = "Inkscape.app"
+windows_dirs = ["Inkscape"]
+license = "GPL-2.0-or-later"
+homepage = "https://inkscape.org/release/"
+
+[[app]]
+id = "gimp"
+name = "GIMP"
+category = "Image"
+summary = "Raster image manipulation."
+kind = "external"
+path_names = ["gimp", "gimp-3.0", "gimp-2.10"]
+mac_bundle = "GIMP.app"
+windows_dirs = ["GIMP 3", "GIMP 2"]
+license = "GPL-3.0-or-later"
+homepage = "https://www.gimp.org/downloads/"
+
+[[app]]
+id = "kdenlive"
+name = "Kdenlive"
+category = "Video"
+summary = "Non-linear video editing."
+kind = "external"
+path_names = ["kdenlive"]
+mac_bundle = "kdenlive.app"
+windows_dirs = ["kdenlive"]
+license = "GPL-3.0-or-later"
+homepage = "https://kdenlive.org/en/download/"
+
+[[app]]
+id = "darktable"
+name = "darktable"
+category = "Photo"
+summary = "RAW photo development and photo management."
+kind = "external"
+path_names = ["darktable"]
+mac_bundle = "darktable.app"
+windows_dirs = ["darktable"]
+license = "GPL-3.0-or-later"
+homepage = "https://www.darktable.org/install/"
+
+[[app]]
+id = "godot"
+name = "Godot Engine"
+category = "Interactive"
+summary = "2D/3D game and interactive-media engine."
+kind = "external"
+path_names = ["godot", "godot4"]
+mac_bundle = "Godot.app"
+windows_dirs = []
+license = "MIT"
+homepage = "https://godotengine.org/download/"
+
+[[app]]
+id = "comfyui"
+name = "ComfyUI"
+category = "AI"
+summary = "Node-based local AI image and video generation."
+kind = "external"
+path_names = ["comfyui", "comfy"]
+mac_bundle = "ComfyUI.app"
+windows_dirs = ["ComfyUI"]
+license = "GPL-3.0"
+homepage = "https://github.com/comfyanonymous/ComfyUI"

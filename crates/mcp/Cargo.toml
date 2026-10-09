@@ -1,0 +1,15 @@
+[package]
+name = "atelier-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Atelier L2: MCP client for the apps' stdio servers, and the hub's own MCP server that fronts them all"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }

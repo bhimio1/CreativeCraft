@@ -1,0 +1,10 @@
+[package]
+name = "atelier-sync-plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Atelier L0: three-way cloud-sync planner (pure logic, std only)"
+
+[lints]
+workspace = true

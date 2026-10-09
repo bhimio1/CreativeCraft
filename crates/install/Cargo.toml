@@ -1,0 +1,25 @@
+[package]
+name = "atelier-install"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Atelier L2: per-user install, update, detect and launch of catalog apps"
+
+[lints]
+workspace = true
+
+[dependencies]
+atelier-platform = { workspace = true }
+atelier-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+ureq = { workspace = true }
+sha2 = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+zip = { workspace = true }
+directories = { workspace = true }
+open = { workspace = true }

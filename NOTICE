@@ -1,0 +1,15 @@
+Atelier
+Copyright (c) 2026 the Atelier contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+Atelier is an independent project. It is not affiliated with, endorsed by, or sponsored by the
+ArtCraft Team, Adobe, the Blender Foundation, Google, or any other project or company it mentions.
+
+App names in catalog/apps.toml (PhotoCraft, VectorCraft, Blender, Krita, …) are used only to
+identify those apps so users can find, install and launch them. They remain the property of their
+owners. Atelier bundles none of those apps' code, binaries, logos or artwork: Craft apps are
+downloaded from their own GitHub releases at the user's request, and other apps are only detected
+and linked to their official download pages.
+
+Google Drive is a trademark of Google LLC. Atelier uses the public Google Drive API.

@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+default-members = ["crates/*", "apps/atelier", "apps/atelier-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/YOUR-ORG/atelier"
+
+[workspace.dependencies]
+# internal (layer in brackets; a crate may only depend on lower layers)
+atelier-platform = { path = "crates/platform" }   # L0, std only
+atelier-sync-plan = { path = "crates/sync-plan" } # L0, std only
+atelier-catalog = { path = "crates/catalog" }     # L1
+atelier-install = { path = "crates/install" }     # L2
+atelier-cloud = { path = "crates/cloud" }         # L2
+atelier-mcp = { path = "crates/mcp" }             # L2
+atelier-engine = { path = "crates/engine" }       # L3
+atelier-ui-egui = { path = "crates/ui-egui" }     # L4
+
+# external: pure Rust only (rustls, not OpenSSL; no webview, no C toolkits)
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+sha2 = "0.10"
+md-5 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+directories = "6"
+open = "5"
+eframe = { version = "0.36", default-features = false }
+egui = "0.36"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
