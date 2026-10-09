@@ -85,6 +85,12 @@ Tools from app servers are re-exported as `<app>__<tool>`; the hub sends
 `notifications/tools/list_changed` when an app server starts so the host refreshes its tool list.
 `app_tools` / `app_call` give hosts that don't refresh a way in, too.
 
+An app can run as several **instances**, each its own `<app>-cli mcp` process with its own
+documents: the first is named like the app, `app_open_instance` starts `photocraft-2`,
+`photocraft-3`, … whose tools are exported as `photocraft-2__<tool>`. `app_instances` lists them
+and `app_close_instance` stops one. An extra instance that dies isn't restarted silently (its
+documents are gone); the first instance of an app restarts on its next call as before.
+
 ## AI assistant
 
 See [ai-chat.md](ai-chat.md). The Assistant page gets a launch spec from

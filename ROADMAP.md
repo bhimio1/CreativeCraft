@@ -29,7 +29,7 @@
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
 - [ ] Projects: previews for PDF (needs a pure-Rust renderer) and compressed `.blend`
 - [ ] Terminal: mouse reporting for full-screen TUIs, double-click word selection, a font-size setting
-- [ ] Several assistant sessions side by side (tabs)
+- [x] Agent tabs: several agents at once, each with its own app instances (`app_open_instance`)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed
 - [ ] Token storage in the OS keychain (`keyring` crate) instead of a 0600 file

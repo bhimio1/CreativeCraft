@@ -140,6 +140,12 @@ impl CreativeCraftApp {
                 }
             }
             Ok("assistant") => app.page = Page::Assistant,
+            Ok(p) if p.starts_with("assistant:") => {
+                app.page = Page::Assistant;
+                for _ in 0..p["assistant:".len()..].parse::<usize>().unwrap_or(1) {
+                    app.assistant.debug_add_tab(app.draft.agent.backend);
+                }
+            }
             Ok("marketplace") => app.page = Page::Marketplace,
             Ok("settings") => app.page = Page::Settings,
             Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") => {

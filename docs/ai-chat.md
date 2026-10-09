@@ -7,11 +7,17 @@ an MCP server, which fronts all your agent-ready apps.
 
 There are two ways in:
 
-- **The Assistant page** is a terminal. It starts the agent's own interactive UI (`claude`,
-  `opencode`, `hermes chat`, `agy`, or your command) in the projects folder, wired to the hub, and
-  you use it exactly as you would in any terminal. It starts when you first open the page;
-  **Restart** begins a fresh session and **End** stops it. Ctrl+C copies when text is selected and
-  interrupts otherwise; drag to select, scroll for history.
+- **The Assistant page** runs agents in tabs. Each tab is a terminal with an agent's own
+  interactive UI (`claude`, `opencode`, `hermes chat`, `agy`, or your command) in the projects
+  folder, wired to the hub, and you use it exactly as you would in any terminal. **+ New agent**
+  opens another tab with any agent, so several can work on different tasks at once; tabs keep
+  running in the background. A tab starts when it's first shown; **Restart** begins a fresh
+  session and **End** stops it; double-click a tab to rename it. Closing a running tab asks first.
+  Ctrl+C copies when text is selected and interrupts otherwise; drag to select, scroll for history.
+
+  Every agent starts its own `creativecraft-cli mcp`, so each has its own app instances and two
+  agents never edit the same open document. They do share the projects folder, so give them
+  different files to work on.
 - **`creativecraft-cli chat "…"`** runs one headless turn per message, resuming the agent's session,
   and prints the parsed reply.
 
