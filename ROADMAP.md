@@ -24,6 +24,8 @@
 - [x] Projects page: recent files with embedded previews; `creativecraft-cli projects`
 - [x] Install sources: a fork's releases, or git builds (official or fork, any branch) with cargo
 - [x] Installed external apps show their own icon (Linux desktop entries, macOS bundles)
+- [x] Marketplace page (placeholder: "coming soon")
+- [ ] Plugin support: a plugin format, a catalog, install/update/remove from the Marketplace
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
 - [ ] Projects: previews for PDF (needs a pure-Rust renderer) and compressed `.blend`
 - [ ] Terminal: mouse reporting for full-screen TUIs, double-click word selection, a font-size setting

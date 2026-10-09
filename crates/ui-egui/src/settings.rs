@@ -176,7 +176,7 @@ impl CreativeCraftApp {
                         },
                     );
                     theme::row_divider(ui);
-                    theme::setting_row(ui, "OAuth client", "The publisher's Desktop-app client ID and secret.", |ui| {
+                    theme::setting_row(ui, "OAuth client", "From your Google Cloud Desktop-app client; the guide below shows how to make one.", |ui| {
                         ui.vertical(|ui| {
                             ui.add(egui::TextEdit::singleline(client_id).hint_text("Client ID").desired_width(260.0));
                             ui.add(egui::TextEdit::singleline(client_secret).hint_text("Client secret").password(true).desired_width(260.0));
@@ -204,6 +204,60 @@ impl CreativeCraftApp {
                     ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
                 });
             }
+        });
+        if let CloudChoice::GoogleDrive { client_id, .. } = &self.draft.cloud {
+            let open = !self.signed_in || client_id.trim().is_empty();
+            ui.add_space(16.0);
+            Self::google_drive_guide(ui, open);
+        }
+    }
+
+    /// What Google Drive sync does and how to set it up, in short; docs/google-drive.md has it all.
+    fn google_drive_guide(ui: &mut egui::Ui, open: bool) {
+        let t = theme::Tokens::get();
+        theme::card(ui, |ui| {
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new(RichText::new("How Google Drive sync works, and how to set it up").size(14.0).color(t.ink))
+                .id_salt("drive_guide")
+                .default_open(open)
+                .show(ui, |ui| {
+                    let para = |ui: &mut egui::Ui, text: &str| {
+                        ui.label(RichText::new(text).size(12.5).color(t.muted));
+                        ui.add_space(6.0);
+                    };
+                    para(
+                        ui,
+                        "Your projects folder is mirrored into one Drive folder, “CreativeCraft Projects”. CreativeCraft can only see files it created \
+                         there, never the rest of your Drive. If the same file changed on two computers, both versions are kept; deletions go to the trash.",
+                    );
+                    para(
+                        ui,
+                        "Google requires a (free) OAuth client from Google Cloud before any app can use Drive. Set one up once, in about ten minutes:",
+                    );
+                    let steps = [
+                        "Create a project at console.cloud.google.com.",
+                        "Enable the Google Drive API for it.",
+                        "Set up the consent screen (Google Auth Platform): app name, External audience, the scope …/auth/drive.file only, and your account as a test user. Publish the app to stop sign-ins expiring after 7 days.",
+                        "Create an OAuth client of type Desktop app. Other types fail with redirect_uri_mismatch.",
+                        "Paste its Client ID and secret above, then click Sign in and allow access in your browser.",
+                    ];
+                    for (i, step) in steps.iter().enumerate() {
+                        // one label per step, so long steps wrap inside the card
+                        ui.label(RichText::new(format!("{}.  {step}", i + 1)).size(12.5).color(t.muted));
+                    }
+                    ui.add_space(8.0);
+                    para(ui, "Rather not use Google Cloud? Choose “A folder” and pick the folder Google Drive for desktop already syncs.");
+                    ui.horizontal(|ui| {
+                        if ui.add(theme::secondary("Open Google Cloud Console")).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab("https://console.cloud.google.com/apis/library/drive.googleapis.com"));
+                        }
+                        let repo = env!("CARGO_PKG_REPOSITORY");
+                        if !repo.is_empty() && ui.add(theme::secondary("Full guide and troubleshooting")).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(format!("{repo}/blob/main/docs/google-drive.md")));
+                        }
+                    });
+                });
+            ui.add_space(6.0);
         });
     }
 

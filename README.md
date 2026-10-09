@@ -68,18 +68,14 @@ shows the exact path and a Copy button):
 
 ### Set up Google Drive
 
-Drive needs an OAuth client that **you, the publisher,** own:
+Drive sync needs a free Google Cloud OAuth client (about ten minutes, once): enable the **Google
+Drive API**, set up the consent screen with only the `drive.file` scope, create a **Desktop app**
+client, and paste its ID and secret into **Settings → Cloud sync → Google Drive**, then **Sign
+in**. [docs/google-drive.md](docs/google-drive.md) walks through every step, explains how sync
+keeps your work safe, and covers the common errors.
 
-1. In Google Cloud Console, create a project, enable the **Google Drive API**.
-2. Configure the OAuth consent screen; add the scope `.../auth/drive.file` only.
-3. Create credentials → **OAuth client ID** → application type **Desktop app**.
-4. Put the id and secret in Settings → Cloud sync → Google Drive (or set
-   `CREATIVECRAFT_GOOGLE_CLIENT_ID` / `CREATIVECRAFT_GOOGLE_CLIENT_SECRET` at build/packaging time), then
-   Projects → **Sign in to Google Drive**. Sign-in uses your browser and a loopback redirect
-   with PKCE; no embedded webview.
-
-For a public release, Google must verify the consent screen; `drive.file` is a non-sensitive
-scope, which keeps that review light.
+No Google Cloud account? Choose **A folder** instead and point it at the folder Google Drive for
+desktop (or any other sync app) already syncs.
 
 ## Layout
 

@@ -8,6 +8,7 @@
 
 mod assets;
 mod assistant;
+mod marketplace;
 mod projects;
 mod settings;
 mod sources;
@@ -28,6 +29,7 @@ pub enum Page {
     Projects,
     Files,
     Assistant,
+    Marketplace,
     Settings,
 }
 
@@ -138,6 +140,7 @@ impl CreativeCraftApp {
                 }
             }
             Ok("assistant") => app.page = Page::Assistant,
+            Ok("marketplace") => app.page = Page::Marketplace,
             Ok("settings") => app.page = Page::Settings,
             Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") => {
                 app.page = Page::Settings;
@@ -295,7 +298,13 @@ impl CreativeCraftApp {
             .exact_size(200.0)
             .frame(egui::Frame::NONE.fill(t.bar).inner_margin(egui::Margin { left: 10, right: 10, top: 14, bottom: 10 }))
             .show(ui, |ui| {
-                for (page, label) in [(Page::Apps, "Apps"), (Page::Projects, "Projects"), (Page::Files, "Files"), (Page::Assistant, "Assistant")] {
+                for (page, label) in [
+                    (Page::Apps, "Apps"),
+                    (Page::Projects, "Projects"),
+                    (Page::Files, "Files"),
+                    (Page::Assistant, "Assistant"),
+                    (Page::Marketplace, "Marketplace"),
+                ] {
                     self.nav_item(ui, page, label);
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -308,6 +317,7 @@ impl CreativeCraftApp {
             // the terminal, the projects grid and the settings page lay out (and scroll) themselves
             match self.page {
                 Page::Assistant => self.assistant_page(ui),
+                Page::Marketplace => self.marketplace_page(ui),
                 Page::Projects => self.projects_page(ui),
                 Page::Settings => self.settings_page(ui),
                 Page::Apps | Page::Files => {
