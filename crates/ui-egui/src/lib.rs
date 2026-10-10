@@ -168,6 +168,11 @@ impl CreativeCraftApp {
                     app.assistant.debug_add_tab(app.draft.agent.backend);
                 }
             }
+            Ok(p) if p.starts_with("generation:") => {
+                app.page = Page::Settings;
+                app.settings_section = settings::Section::Generation;
+                app.generate.debug_open = Some(p["generation:".len()..].to_string());
+            }
             Ok("marketplace") => app.page = Page::Marketplace,
             Ok("settings") => app.page = Page::Settings,
             Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") | Ok("settings:generation") => {
@@ -384,6 +389,8 @@ impl CreativeCraftApp {
             self.source_dialog_ui(ui.ctx().clone());
         }
         self.splash.show(ui.ctx(), &self.tex);
+        #[cfg(debug_assertions)]
+        debug_self_screenshot(ui.ctx());
     }
 
     /// "Report a bug" for CreativeCraft itself, quiet at the foot of the sidebar.
@@ -749,4 +756,33 @@ fn theme_toggle(ui: &mut egui::Ui, dark: bool) -> egui::Response {
         p.circle_filled(c + vec2(3.5, -3.0), 6.0, if resp.hovered() { t.row_hover } else { t.bar });
     }
     resp
+}
+
+/// Debug builds only: with `CREATIVECRAFT_DEBUG_SHOT=<file.png>`, save a picture of this window
+/// (nothing else on screen) a few seconds after it opens, then close. For checking layouts.
+#[cfg(debug_assertions)]
+fn debug_self_screenshot(ctx: &egui::Context) {
+    let Ok(out) = std::env::var("CREATIVECRAFT_DEBUG_SHOT") else { return };
+    let asked = egui::Id::new("debug_shot_asked");
+    let shot = ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Screenshot { image, .. } => Some(image.clone()),
+            _ => None,
+        })
+    });
+    if let Some(image) = shot {
+        let [w, h] = image.size;
+        let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
+        if let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, rgba) {
+            let _ = img.save(&out);
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        return;
+    }
+    let wait: f64 = std::env::var("CREATIVECRAFT_DEBUG_SHOT_AFTER").ok().and_then(|s| s.parse().ok()).unwrap_or(4.0);
+    if ctx.input(|i| i.time) > wait && !ctx.data(|d| d.get_temp::<bool>(asked).unwrap_or(false)) {
+        ctx.data_mut(|d| d.insert_temp(asked, true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }

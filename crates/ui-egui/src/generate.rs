@@ -46,6 +46,9 @@ enum Thumb {
 }
 
 pub(crate) struct GenerateState {
+    /// Debug builds: open a provider's details for screenshots.
+    #[cfg(debug_assertions)]
+    pub(crate) debug_open: Option<String>,
     kind: Kind,
     prompt: String,
     negative: String,
@@ -82,6 +85,8 @@ impl Default for GenerateState {
     fn default() -> GenerateState {
         let (tx, rx) = channel();
         GenerateState {
+            #[cfg(debug_assertions)]
+            debug_open: None,
             kind: Kind::Image,
             prompt: String::new(),
             negative: String::new(),
@@ -309,14 +314,18 @@ impl CreativeCraftApp {
             );
             ui.add_space(10.0);
             let mut chosen = None;
-            ui.horizontal_wrapped(|ui| {
-                for p in presets() {
-                    let label = if p.kind.is_local() { format!("{} (local)", p.name) } else { p.name.clone() };
-                    if ui.add(theme::secondary(&label)).on_hover_text(&p.note).clicked() {
-                        chosen = Some(p.id.clone());
+            let all = presets();
+            for (local, title) in [(true, "On this computer: free and private"), (false, "With your own API key")] {
+                ui.label(RichText::new(title).size(12.0).color(t.muted));
+                ui.horizontal_wrapped(|ui| {
+                    for p in all.iter().filter(|p| p.kind.is_local() == local) {
+                        if ui.add(theme::secondary(&p.name)).on_hover_text(&p.note).clicked() {
+                            chosen = Some(p.id.clone());
+                        }
                     }
-                }
-            });
+                });
+                ui.add_space(8.0);
+            }
             ui.add_space(12.0);
             if let Some(id) = chosen
                 && let Ok(p) = self.draft.generation.add_preset(&id)
@@ -515,8 +524,9 @@ impl CreativeCraftApp {
             return;
         }
         let items = self.generate.items.clone();
-        let per_row = ((ui.available_width() + GAP) / (TILE + GAP)).floor().max(1.0) as usize;
-        // fill the row, but never grow a tile past half again its size
+        // as many columns as fit with tiles at least 3/4 of their size, then fill the row (but never
+        // grow a tile past half again its size)
+        let per_row = ((ui.available_width() + GAP) / (TILE * 0.75 + GAP)).floor().max(1.0) as usize;
         let w = ((ui.available_width() - GAP * (per_row as f32 - 1.0)) / per_row as f32).min(TILE * 1.5);
         for row in items.chunks(per_row) {
             ui.horizontal(|ui| {
@@ -588,6 +598,10 @@ impl CreativeCraftApp {
 
     /// Settings → AI generation.
     pub(crate) fn settings_generation(&mut self, ui: &mut egui::Ui) {
+        #[cfg(debug_assertions)]
+        if let Some(id) = self.generate.debug_open.take() {
+            self.generate.open_provider = Some(id);
+        }
         let t = theme::Tokens::get();
         let idle = self.busy.is_none();
         let mut action = None;
@@ -705,7 +719,7 @@ impl CreativeCraftApp {
                 }
                 egui::ComboBox::from_id_salt("gen_add").selected_text(chosen.as_ref().map_or("Choose…", |p| p.name.as_str())).width(220.0).show_ui(ui, |ui| {
                     for p in &presets {
-                        let label = if p.kind.is_local() { format!("{} (on this computer)", p.name) } else { p.name.clone() };
+                        let label = p.name.clone();
                         ui.selectable_value(&mut self.generate.add_preset, p.id.clone(), label);
                     }
                 });
