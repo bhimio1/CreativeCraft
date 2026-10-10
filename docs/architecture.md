@@ -31,6 +31,22 @@ blocking API. The engine's `Command::StockDownload` and the hub's `stock_search`
 save into `<projects>/Stock`; the Stock page searches and fetches previews on its own threads. See
 [stock.md](stock.md).
 
+## AI generation
+
+`creativecraft-generate` (L2) has one adapter per kind of API: OpenAI (images and Sora),
+OpenAI-compatible, xAI, Google (Gemini images and Veo), Replicate, fal (queue), ComfyUI (built-in or
+user API-format workflow) and Stable Diffusion WebUI. All of them use blocking `ureq`, and long jobs
+are polled. Generation POSTs are never retried, so a request is never billed twice. Reads and
+downloads are retried. Presets come from `catalog/generation.toml`, and every field is editable.
+The user's services are `settings.generation`. Their API keys are kept in `secrets.json` under
+`generate <id>`.
+
+The engine's `Command::Generate` builds a `GenerationJob` (a copy of the provider and request) and
+runs it. The job saves to `<projects>/Generated/<date>/` with a `<file>.json` sidecar, writing to a
+temp file and then renaming. The Generate page runs a job on its own thread, so a long video
+never holds the session. The hub's `generate_image` / `generate_video` / `generation_providers` go
+through the same command, gated by `agents_can_generate`. See [generation.md](generation.md).
+
 ## Plugins
 
 `marketplace/plugins.toml` (crate `creativecraft-marketplace`) lists MCP-server plugins; the
@@ -168,7 +184,9 @@ exported desktop entry's `--command=`).
 <config>/settings.json
 <config>/apps.toml                optional catalog overlay
 <config>/google-token.json        (0600)
+<config>/secrets.json             (0600) cloud passwords/secret keys, AI generation API keys
 <data>/chat.json                  `creativecraft-cli chat` transcript (the model history lives in the backend's session)
+<projects>/Generated/<date>/…     AI generation results, each with a .json sidecar
 <projects>/.creativecraft/sync-base.json, sync.lock, trash/, agent/
 <projects>/.agents/mcp_config.json   Antigravity's workspace MCP config (not synced)
 ```

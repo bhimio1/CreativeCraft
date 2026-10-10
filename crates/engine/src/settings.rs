@@ -57,6 +57,29 @@ impl CloudChoice {
     }
 }
 
+/// AI image and video generation settings. API keys are in `secrets.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GenerationSettings {
+    pub providers: Vec<creativecraft_generate::Provider>,
+    /// Provider ids used when a request doesn't name one ("" = the first that can).
+    pub image_provider: String,
+    pub video_provider: String,
+    /// Agents may generate through the hub's tools (paid services bill the user's account).
+    pub agents_can_generate: bool,
+}
+
+impl Default for GenerationSettings {
+    fn default() -> GenerationSettings {
+        GenerationSettings { providers: Vec::new(), image_provider: String::new(), video_provider: String::new(), agents_can_generate: true }
+    }
+}
+
+/// The secrets.json key for a generation provider's API key.
+fn generation_key(id: &str) -> String {
+    format!("generate {id}")
+}
+
 /// `secrets.json` beside `settings.json`, readable only by the user.
 fn secrets_path(settings: &Path) -> PathBuf {
     settings.with_file_name("secrets.json")
@@ -122,6 +145,8 @@ pub struct Settings {
     pub app_sources: BTreeMap<String, Source>,
     /// Installed Marketplace plugins (plugin id → state).
     pub plugins: BTreeMap<String, crate::PluginState>,
+    /// AI image and video generation: the user's services and which to use by default.
+    pub generation: GenerationSettings,
     /// Play the short start-up animation when the window opens.
     pub intro_animation: bool,
     /// Agents work in apps' visible windows (live mode) rather than headless, so the user can
@@ -143,6 +168,7 @@ impl Default for Settings {
             appearance: Appearance::System,
             app_sources: BTreeMap::new(),
             plugins: BTreeMap::new(),
+            generation: GenerationSettings::default(),
             intro_animation: true,
             show_app_windows: true,
         }
@@ -154,10 +180,16 @@ impl Settings {
     /// easy: `CREATIVECRAFT_GOOGLE_CLIENT_ID` / `CREATIVECRAFT_GOOGLE_CLIENT_SECRET`.
     pub fn load(path: &Path) -> Settings {
         let mut s: Settings = std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let mut secrets = load_secrets(path);
         if let Some((key, value)) = s.cloud.secret_slot()
-            && let Some(secret) = load_secrets(path).remove(&key)
+            && let Some(secret) = secrets.remove(&key)
         {
             *value = secret;
+        }
+        for p in &mut s.generation.providers {
+            if let Some(k) = secrets.remove(&generation_key(&p.id)) {
+                p.api_key = k;
+            }
         }
         if let (Ok(id), Ok(secret)) = (std::env::var("CREATIVECRAFT_GOOGLE_CLIENT_ID"), std::env::var("CREATIVECRAFT_GOOGLE_CLIENT_SECRET"))
             && matches!(s.cloud, CloudChoice::Off)
@@ -171,16 +203,26 @@ impl Settings {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        // the password or secret key goes to secrets.json; settings.json never contains it
+        // passwords and API keys go to secrets.json; settings.json never contains them
+        let before = load_secrets(path);
+        let mut secrets = before.clone();
         let mut cloud = self.cloud.clone();
         if let Some((key, value)) = cloud.secret_slot()
             && !value.is_empty()
         {
-            let mut secrets = load_secrets(path);
-            if secrets.get(&key) != Some(value) {
-                secrets.insert(key, value.clone());
-                save_secrets(path, &secrets)?;
+            secrets.insert(key, value.clone());
+        }
+        // a removed provider's key goes with it
+        secrets.retain(|k, _| !k.starts_with("generate ") || self.generation.providers.iter().any(|p| generation_key(&p.id) == *k));
+        for p in &self.generation.providers {
+            if p.api_key.trim().is_empty() {
+                secrets.remove(&generation_key(&p.id));
+            } else {
+                secrets.insert(generation_key(&p.id), p.api_key.trim().to_string());
             }
+        }
+        if secrets != before {
+            save_secrets(path, &secrets)?;
         }
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?)?;
@@ -225,6 +267,26 @@ mod tests {
         s.cloud = CloudChoice::WebDav { url: "https://nas.local/dav".into(), username: "me".into(), password: String::new() };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path).cloud, CloudChoice::WebDav { url: "https://nas.local/dav".into(), username: "me".into(), password: "hunter2".into() });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn generation_keys_are_secrets_and_leave_with_their_provider() {
+        let dir = std::env::temp_dir().join(format!("cc-genkeys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let mut p = creativecraft_generate::presets().into_iter().find(|p| p.id == "openai").unwrap().provider();
+        p.api_key = "sk-very-secret".into();
+        let mut s = Settings::default();
+        s.generation.providers.push(p);
+        s.save(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("sk-very-secret"));
+        assert!(std::fs::read_to_string(dir.join("secrets.json")).unwrap().contains("sk-very-secret"));
+        assert_eq!(Settings::load(&path).generation.providers[0].api_key, "sk-very-secret");
+        s.generation.providers.clear();
+        s.save(&path).unwrap();
+        assert!(!std::fs::read_to_string(dir.join("secrets.json")).unwrap().contains("sk-very-secret"), "removed with its provider");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

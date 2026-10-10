@@ -11,6 +11,7 @@ description = "CreativeCraft L3: the Session and its command registry; every act
 workspace = true
 
 [dependencies]
+creativecraft-generate = { workspace = true }
 creativecraft-stock = { workspace = true }
 creativecraft-marketplace = { workspace = true }
 creativecraft-platform = { workspace = true }

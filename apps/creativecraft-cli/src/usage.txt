@@ -18,6 +18,17 @@ USAGE
   creativecraft-cli stock search <words>    free public-domain photos, art, video, audio [--kind …]
   creativecraft-cli stock download <source> <id> [size]   into the projects folder's Stock/
   creativecraft-cli stock list [words]     what's downloaded, offline
+  creativecraft-cli generate image <prompt>   make images with your AI service, into Generated/
+                     [--provider id] [--model m] [--aspect square|landscape|portrait] [--count 1-4]
+                     [--negative text] [--seed n]
+  creativecraft-cli generate video <prompt>   a short video [--seconds n] (and the options above)
+  creativecraft-cli generate providers     your AI generation services
+  creativecraft-cli generate presets       services you can add: OpenAI, Google, xAI, Replicate, fal,
+                                           Together, ComfyUI, Stable Diffusion WebUI, custom
+  creativecraft-cli generate add <preset> [--url u] [--image-model m] [--video-model m]
+  creativecraft-cli generate key <id>      set its API key (read from standard input)
+  creativecraft-cli generate remove|test <id>
+  creativecraft-cli generate default image|video <id>
   creativecraft-cli bug [app]              report a bug in an app (or, with no app, in CreativeCraft)
   creativecraft-cli chat <message>         one AI chat turn (continues the current chat)
   creativecraft-cli chat --new             start a fresh chat

@@ -11,6 +11,7 @@ pub(crate) enum Section {
     General,
     Appearance,
     Cloud,
+    Generation,
     Assistant,
     Connections,
     About,
@@ -43,10 +44,11 @@ const IGNORE_TEMPLATE: &str = "# Files and folders CreativeCraft won't sync, one
 # /exports/   only the exports folder at the top\n\
 # !keep.mov   sync this one after all\n";
 
-const SECTIONS: [(Section, &str, &str); 6] = [
+const SECTIONS: [(Section, &str, &str); 7] = [
     (Section::General, "General", "Projects folder and this computer"),
     (Section::Appearance, "Appearance", "Theme and start-up"),
     (Section::Cloud, "Cloud sync", "Where your projects are backed up"),
+    (Section::Generation, "AI generation", "Services that make images and video"),
     (Section::Assistant, "Assistant", "The agent that drives your apps"),
     (Section::Connections, "Connections", "Use CreativeCraft from other tools"),
     (Section::About, "About", "Version and licences"),
@@ -100,6 +102,7 @@ impl CreativeCraftApp {
                     Section::General => self.settings_general(ui),
                     Section::Appearance => self.settings_appearance(ui),
                     Section::Cloud => self.settings_cloud(ui),
+                    Section::Generation => self.settings_generation(ui),
                     Section::Assistant => self.settings_assistant(ui),
                     Section::Connections => self.settings_connections(ui),
                     Section::About => self.settings_about(ui),

@@ -1,0 +1,103 @@
+# AI image and video generation: the services CreativeCraft offers in Settings → AI generation.
+#
+# Models change quickly (several were renamed or retired within weeks of each other), so these are
+# only starting points: every model name is an editable field in Settings, and agents can pass
+# their own. Update the defaults here when a service retires one.
+#
+#   kind       which adapter talks to it: openai, openai_compatible, xai, google, replicate, fal,
+#              comfyui, automatic1111
+#   base_url   default address (editable; for custom endpoints and local servers)
+#   key_url    where the user gets an API key ("" = no key needed)
+#   image_model / video_model   defaults ("" = this service doesn't do it)
+
+version = 1
+
+[[preset]]
+id = "openai"
+name = "OpenAI"
+kind = "openai"
+base_url = "https://api.openai.com/v1"
+key_url = "https://platform.openai.com/api-keys"
+image_model = "gpt-image-2"
+video_model = "sora-2"
+note = "GPT Image for pictures, Sora for video."
+
+[[preset]]
+id = "google"
+name = "Google Gemini"
+kind = "google"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+key_url = "https://aistudio.google.com/apikey"
+image_model = "gemini-3.1-flash-image"
+video_model = "veo-3.1-generate-preview"
+note = "Gemini image models (Nano Banana) and Veo video."
+
+[[preset]]
+id = "xai"
+name = "xAI Grok Imagine"
+kind = "xai"
+base_url = "https://api.x.ai/v1"
+key_url = "https://console.x.ai/"
+image_model = "grok-imagine-image-2.0"
+video_model = "grok-imagine-video-1.5"
+note = "Grok Imagine images and video."
+
+[[preset]]
+id = "replicate"
+name = "Replicate"
+kind = "replicate"
+base_url = "https://api.replicate.com/v1"
+key_url = "https://replicate.com/account/api-tokens"
+image_model = "black-forest-labs/flux-1.1-pro"
+video_model = "google/veo-3-fast"
+note = "Hundreds of models from one account: FLUX, Ideogram, Recraft, Seedream, Veo, Kling, MiniMax, Wan and more. Use the model's owner/name."
+
+[[preset]]
+id = "fal"
+name = "fal"
+kind = "fal"
+base_url = "https://queue.fal.run"
+key_url = "https://fal.ai/dashboard/keys"
+image_model = "fal-ai/flux/dev"
+video_model = "fal-ai/veo3.1"
+note = "Hundreds of models from one account: FLUX, Recraft, Seedream, Veo, Kling, Luma, MiniMax, Wan and more. Use the model's endpoint id."
+
+[[preset]]
+id = "together"
+name = "Together AI"
+kind = "openai_compatible"
+base_url = "https://api.together.ai/v1"
+key_url = "https://api.together.ai/settings/api-keys"
+image_model = "black-forest-labs/FLUX.2-dev"
+video_model = ""
+note = "FLUX models through an OpenAI-style API."
+
+[[preset]]
+id = "comfyui"
+name = "ComfyUI (local)"
+kind = "comfyui"
+base_url = "http://127.0.0.1:8188"
+key_url = ""
+image_model = ""
+video_model = ""
+note = "Runs on your computer. Image model = a checkpoint name (empty: the first one ComfyUI has). For video or anything else, point it at a workflow saved with \"Export (API)\"."
+
+[[preset]]
+id = "automatic1111"
+name = "Stable Diffusion WebUI (local)"
+kind = "automatic1111"
+base_url = "http://127.0.0.1:7860"
+key_url = ""
+image_model = ""
+video_model = ""
+note = "AUTOMATIC1111, Forge or SD.Next started with --api. Image model = a checkpoint name (empty: the loaded one)."
+
+[[preset]]
+id = "custom"
+name = "Custom (OpenAI-compatible)"
+kind = "openai_compatible"
+base_url = "http://127.0.0.1:8080/v1"
+key_url = ""
+image_model = ""
+video_model = ""
+note = "Any server with an OpenAI-style /images/generations endpoint: LocalAI, gateways, your own."

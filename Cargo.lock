@@ -965,6 +965,7 @@ dependencies = [
  "creativecraft-agent",
  "creativecraft-catalog",
  "creativecraft-cloud",
+ "creativecraft-generate",
  "creativecraft-install",
  "creativecraft-marketplace",
  "creativecraft-mcp",
@@ -975,6 +976,19 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "zip",
+]
+
+[[package]]
+name = "creativecraft-generate"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml",
+ "ureq",
 ]
 
 [[package]]

@@ -1,0 +1,20 @@
+[package]
+name = "creativecraft-generate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CreativeCraft L2: AI image and video generation through the user's own services (OpenAI, Google, xAI, Replicate, fal, OpenAI-compatible endpoints) or local ones (ComfyUI, Stable Diffusion WebUI)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+ureq = { workspace = true }
+base64 = { workspace = true }

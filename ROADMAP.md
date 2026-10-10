@@ -25,6 +25,8 @@
 - [x] Install sources: a fork's releases, or git builds (official or fork, any branch) with cargo
 - [x] Installed external apps show their own icon (Linux desktop entries, macOS bundles)
 - [x] Stock page and agent tools for public-domain media through StockCraft
+- [x] AI image and video generation: local (ComfyUI, Stable Diffusion WebUI), bring-your-own-key (OpenAI, Google, xAI, Replicate, fal, Together) and OpenAI-compatible endpoints; Generate page, hub tools, CLI
+- [ ] AI generation: image-to-image and editing (a source image from the projects folder), video thumbnails in the gallery, cancel a running job
 - [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
 - [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)

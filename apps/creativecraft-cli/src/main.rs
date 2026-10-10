@@ -13,6 +13,8 @@
 //! creativecraft-cli stock search <words…> [--kind photo|illustration|artwork|video|audio]
 //! creativecraft-cli stock download <source> <id> [size label]   into <projects>/Stock
 //! creativecraft-cli stock list [words…]                         what's downloaded (offline)
+//! creativecraft-cli generate image|video <prompt…> [--provider id] [--model m] [--aspect a] [--count n] [--seconds n]
+//! creativecraft-cli generate providers | presets | add <preset> | key <id> | remove <id> | test <id> | default image|video <id>
 //! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
 //! creativecraft-cli chat --new              start a fresh chat
@@ -228,6 +230,7 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                 _ => return Err(EngineError::Plugin("usage: creativecraft-cli stock search|download|list …".into())),
             }
         }
+        "generate" | "gen" => generate(&mut s, rest)?,
         "bug" | "report-bug" => {
             // print the address too, for terminals without a browser
             let id = rest.first().cloned();
@@ -286,6 +289,144 @@ fn chat(s: &Session, message: &str) -> Result<(), EngineError> {
     Ok(())
 }
 
+/// `creativecraft-cli generate …`: make images and videos, and manage the services that make them.
+fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
+    use creativecraft_engine::generation::{Aspect, Kind, Request};
+    let bad = |m: &str| EngineError::Generate(m.into());
+    let value = |flag: &str| rest.iter().position(|a| a == flag).and_then(|i| rest.get(i + 1)).cloned();
+    let number = |flag: &str| -> Result<Option<u64>, EngineError> {
+        value(flag).map(|v| v.parse::<u64>().map_err(|_| bad(&format!("{flag} needs a number")))).transpose()
+    };
+    let arg = |i: usize, what: &str| {
+        rest.get(i).cloned().ok_or_else(|| bad(&format!("usage: creativecraft-cli generate {} <{what}>", rest.first().map_or("", String::as_str))))
+    };
+    match rest.first().map(String::as_str) {
+        Some(kind @ ("image" | "video")) => {
+            // the prompt is every word that isn't a flag or a flag's value
+            let mut words = Vec::new();
+            let mut i = 1;
+            while i < rest.len() {
+                if rest[i].starts_with("--") {
+                    i += 2;
+                } else {
+                    words.push(rest[i].as_str());
+                    i += 1;
+                }
+            }
+            let aspect = match value("--aspect") {
+                Some(a) => Aspect::from_name(&a).ok_or_else(|| bad("--aspect is square, landscape or portrait"))?,
+                None if kind == "video" => Aspect::Landscape,
+                None => Aspect::Square,
+            };
+            let request = Request {
+                kind: if kind == "image" { Kind::Image } else { Kind::Video },
+                prompt: words.join(" "),
+                negative: value("--negative").unwrap_or_default(),
+                model: value("--model").unwrap_or_default(),
+                aspect,
+                count: number("--count")?.map_or(1, |n| n.clamp(1, 4) as u32),
+                seconds: number("--seconds")?.map(|n| n.min(60) as u32),
+                seed: number("--seed")?,
+            };
+            let result = s.execute(Command::Generate { request, provider: value("--provider") }, &mut print_progress);
+            eprintln!();
+            out!("{}", result?);
+        }
+        Some("providers") | None => {
+            let g = &s.settings.generation;
+            if g.providers.is_empty() {
+                out!("No AI generation services yet. See `creativecraft-cli generate presets`, then `generate add <preset>`.");
+            }
+            let v = s.generation_providers_json();
+            for p in v["providers"].as_array().into_iter().flatten() {
+                let defaults: Vec<&str> = p["default_for"].as_array().into_iter().flatten().filter_map(|d| d.as_str()).collect();
+                let key = if p["local"] == true {
+                    "local"
+                } else if p["has_key"] == true {
+                    "key set"
+                } else {
+                    "no key"
+                };
+                out!(
+                    "{:<16} {:<24} {:<8} image: {:<28} video: {:<24} {}",
+                    p["id"].as_str().unwrap_or(""),
+                    p["name"].as_str().unwrap_or(""),
+                    key,
+                    p["image_model"].as_str().unwrap_or("-"),
+                    p["video_model"].as_str().unwrap_or("-"),
+                    if defaults.is_empty() { String::new() } else { format!("(default for {})", defaults.join(", ")) }
+                );
+            }
+        }
+        Some("presets") => {
+            for p in creativecraft_engine::generation::presets() {
+                out!("{:<14} {:<26} {}", p.id, p.name, p.note);
+            }
+        }
+        Some("add") => {
+            let preset = arg(1, "preset")?;
+            let p = s.add_generation_provider(&preset)?;
+            if let Some(u) = value("--url") {
+                p.base_url = u;
+            }
+            if let Some(m) = value("--image-model") {
+                p.image_model = m;
+            }
+            if let Some(m) = value("--video-model") {
+                p.video_model = m;
+            }
+            let (id, local) = (p.id.clone(), p.kind.is_local());
+            s.save_settings()?;
+            out!(
+                "Added {id}.{}",
+                if local {
+                    ""
+                } else {
+                    " Set its key with `creativecraft-cli generate key <id>` (read from standard input, so it stays out of your shell history)."
+                }
+            );
+        }
+        Some("key") => {
+            let id = arg(1, "id")?;
+            if !s.settings.generation.providers.iter().any(|p| p.id == id) {
+                return Err(bad(&format!("no AI generation service with id `{id}`")));
+            }
+            eprint!("Paste the API key for {id} and press Enter (empty removes it): ");
+            let mut key = String::new();
+            std::io::stdin().read_line(&mut key)?;
+            if let Some(p) = s.settings.generation.providers.iter_mut().find(|p| p.id == id) {
+                p.api_key = key.trim().to_string();
+            }
+            s.save_settings()?;
+            out!("{}", if key.trim().is_empty() { "Key removed" } else { "Key saved (in secrets.json, readable only by you)" });
+        }
+        Some("remove") => {
+            let id = arg(1, "id")?;
+            let before = s.settings.generation.providers.len();
+            s.settings.generation.providers.retain(|p| p.id != id);
+            if s.settings.generation.providers.len() == before {
+                return Err(bad(&format!("no AI generation service with id `{id}`")));
+            }
+            s.save_settings()?;
+            out!("Removed {id} and its key");
+        }
+        Some("default") => {
+            let (kind, id) = (arg(1, "image|video")?, arg(2, "id")?);
+            s.generation_provider(Some(&id), Kind::Image)?;
+            match kind.as_str() {
+                "image" => s.settings.generation.image_provider = id.clone(),
+                "video" => s.settings.generation.video_provider = id.clone(),
+                _ => return Err(bad("usage: creativecraft-cli generate default image|video <id>")),
+            }
+            s.save_settings()?;
+            out!("{id} is now the default for {kind}");
+        }
+        Some("test") => out!("{}", s.execute(Command::TestGenerator(arg(1, "id")?), &mut |_| {})?),
+        Some(other) => return Err(bad(&format!("unknown generate command `{other}`; see creativecraft-cli help"))),
+    }
+    Ok(())
+}
+
 fn print_progress(e: Event) {
     let mut err = std::io::stderr();
     let line = match e {
@@ -298,6 +439,7 @@ fn print_progress(e: Event) {
         Event::Install(_, Progress::Log(_)) => return,
         Event::Install(id, p) => format!("\r{id}: {p:?}{:<40}", ""),
         Event::Sync { done, total, path } => format!("\r[{done}/{total}] {path:<60.60}"),
+        Event::Generate(status) => format!("\r{status:<70.70}"),
     };
     let _ = write!(err, "{line}");
     let _ = err.flush();

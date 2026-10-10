@@ -5,6 +5,7 @@
 //! there is exactly one implementation of each action.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+pub mod generate;
 mod live;
 mod plugins;
 pub mod projects;
@@ -14,10 +15,11 @@ pub mod stock;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
+pub use creativecraft_generate as generation;
 pub use creativecraft_install::Source;
 pub use creativecraft_marketplace::{Index as PluginIndex, Plugin};
 pub use plugins::PluginState;
-pub use settings::{Appearance, CloudChoice, CustomMcp, Settings};
+pub use settings::{Appearance, CloudChoice, CustomMcp, GenerationSettings, Settings};
 
 use creativecraft_catalog::{AppSpec, Catalog, Kind};
 use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, GoogleDrive, sync};
@@ -50,6 +52,8 @@ pub enum EngineError {
     Plugin(String),
     #[error("{0}")]
     Stock(#[from] creativecraft_stock::StockError),
+    #[error("{0}")]
+    Generate(String),
 }
 
 /// Everything the hub can do. Ids (`app.install`, …) are stable: the CLI and docs use them.
@@ -80,6 +84,14 @@ pub enum Command {
         size: Option<String>,
         max_width: Option<u32>,
     },
+    /// Make images or a video with an AI generation service (`None` = the default for the kind)
+    /// and save them under `<projects>/Generated`.
+    Generate {
+        request: creativecraft_generate::Request,
+        provider: Option<String>,
+    },
+    /// Check that a generation service can be reached and accepts its key.
+    TestGenerator(String),
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -102,6 +114,8 @@ impl Command {
             Command::SetPluginEnabled(..) => "plugin.enable",
             Command::RefreshMarketplace => "plugin.refresh",
             Command::StockDownload { .. } => "stock.download",
+            Command::Generate { .. } => "generate.run",
+            Command::TestGenerator(_) => "generate.test",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -113,7 +127,13 @@ impl Command {
 #[derive(Debug, Clone)]
 pub enum Event {
     Install(String, Progress),
-    Sync { done: usize, total: usize, path: String },
+    Sync {
+        done: usize,
+        total: usize,
+        path: String,
+    },
+    /// What a generation service is doing ("queued", "running"…).
+    Generate(String),
 }
 
 pub struct Session {
@@ -266,6 +286,8 @@ impl Session {
             Command::SetPluginEnabled(id, on) => self.set_plugin_enabled(&id, on),
             Command::RefreshMarketplace => self.refresh_marketplace(),
             Command::StockDownload { source, id, size, max_width } => self.stock_download(&source, &id, size.as_deref(), max_width),
+            Command::Generate { request, provider } => self.generate(&request, provider.as_deref(), events),
+            Command::TestGenerator(id) => self.test_generator(&id),
             Command::TestCloud => {
                 let mut store = self.cloud_store()?;
                 Ok(sync::test_connection(store.as_mut())?)
@@ -373,6 +395,16 @@ impl creativecraft_mcp::HubBackend for Session {
     fn stock_download(&mut self, source: &str, id: &str, size: Option<&str>, max_width: Option<u32>) -> Result<String, String> {
         let cmd = Command::StockDownload { source: source.into(), id: id.into(), size: size.map(String::from), max_width };
         self.execute(cmd, &mut |_| {}).map_err(|e| e.to_string())
+    }
+    fn generation_providers(&mut self) -> Value {
+        self.generation_providers_json()
+    }
+    fn generate(&mut self, request: Value, provider: Option<&str>) -> Result<String, String> {
+        if !self.settings.generation.agents_can_generate {
+            return Err("The user has turned off AI generation for agents (Settings → AI generation).".into());
+        }
+        let request: creativecraft_generate::Request = serde_json::from_value(request).map_err(|e| format!("bad arguments: {e}"))?;
+        self.execute(Command::Generate { request, provider: provider.map(String::from) }, &mut |_| {}).map_err(|e| e.to_string())
     }
 }
 

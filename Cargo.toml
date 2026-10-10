@@ -21,6 +21,7 @@ creativecraft-cloud = { path = "crates/cloud" }         # L2
 creativecraft-mcp = { path = "crates/mcp" }             # L2
 creativecraft-agent = { path = "crates/agent" }         # L2
 creativecraft-stock = { path = "crates/stock" }         # L2
+creativecraft-generate = { path = "crates/generate" }   # L2
 creativecraft-engine = { path = "crates/engine" }       # L3
 creativecraft-ui-egui = { path = "crates/ui-egui" }     # L4
 

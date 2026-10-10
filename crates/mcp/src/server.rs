@@ -20,6 +20,15 @@ pub trait HubBackend {
     fn stock_search(&mut self, query: &str, kind: Option<&str>, page: u32) -> Result<Value, String>;
     /// Download a stock asset into the projects folder; returns where it went and its credit line.
     fn stock_download(&mut self, source: &str, id: &str, size: Option<&str>, max_width: Option<u32>) -> Result<String, String>;
+    /// The user's AI generation services: `{providers:[{id, name, local, image_model, video_model, …}], agents_can_generate}`.
+    fn generation_providers(&mut self) -> Value {
+        json!({ "providers": [], "agents_can_generate": false })
+    }
+    /// Make images or a video. `request` is `{kind, prompt, negative?, model?, aspect?, count?,
+    /// seconds?, seed?}`; returns where the files were saved.
+    fn generate(&mut self, _request: Value, _provider: Option<&str>) -> Result<String, String> {
+        Err("AI generation isn't available here".into())
+    }
 }
 
 /// One running app automation server. An app can have several, each its own process with its
@@ -70,6 +79,25 @@ fn hub_tools() -> Vec<Value> {
             "size": { "type": "string", "description": "A size label from stock_search, e.g. \"Large\"" },
             "max_width": { "type": "integer", "minimum": 1 }
         }, "required": ["source", "id"] } }),
+        json!({ "name": "generation_providers", "description": "List the AI image and video generation services the user has set up (id, name, whether it runs locally, its models, which is the default). Never shows keys.", "inputSchema": { "type": "object", "properties": {} } }),
+        json!({ "name": "generate_image", "description": "Make images from a text prompt with the user's AI generation service and save them in the projects folder under Generated/<date>/. Cloud services bill the user's own account: generate only what the user asked for. Can take a minute. Returns the saved paths.", "inputSchema": { "type": "object", "properties": {
+            "prompt": { "type": "string" },
+            "negative": { "type": "string", "description": "What to avoid, where the service supports it" },
+            "aspect": { "type": "string", "enum": ["square", "landscape", "portrait"] },
+            "count": { "type": "integer", "minimum": 1, "maximum": 4 },
+            "provider": { "type": "string", "description": "A service id from generation_providers; omit for the user's default" },
+            "model": { "type": "string", "description": "Override the service's model; omit for the user's choice" },
+            "seed": { "type": "integer", "minimum": 0 }
+        }, "required": ["prompt"] } }),
+        json!({ "name": "generate_video", "description": "Make a short video from a text prompt with the user's AI generation service and save it in the projects folder under Generated/<date>/. Video costs far more than images on cloud services, which bill the user's own account: only when the user asked for a video. Can take several minutes. Returns the saved path.", "inputSchema": { "type": "object", "properties": {
+            "prompt": { "type": "string" },
+            "negative": { "type": "string" },
+            "aspect": { "type": "string", "enum": ["landscape", "portrait", "square"] },
+            "seconds": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Length, rounded to what the service offers" },
+            "provider": { "type": "string" },
+            "model": { "type": "string" },
+            "seed": { "type": "integer", "minimum": 0 }
+        }, "required": ["prompt"] } }),
         json!({ "name": "app_instances", "description": "List the running app instances: instance id, app id and tool count.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "app_close_instance", "description": "Stop one app instance's automation. Headless: anything unsaved is lost, so save first. A visible window stays open for the user.", "inputSchema": { "type": "object", "properties": { "instance": { "type": "string", "description": "Instance id from app_open_instance or app_instances" } }, "required": ["instance"] } }),
     ]
@@ -227,6 +255,18 @@ impl<B: HubBackend> HubServer<B> {
                 let max_width = args.get("max_width").and_then(Value::as_u64).map(|w| w.min(u64::from(u32::MAX)) as u32);
                 done(self.backend.stock_download(&s("source"), &s("id"), size.as_deref(), max_width))
             }
+            "generation_providers" => text_result(self.backend.generation_providers().to_string(), false),
+            "generate_image" | "generate_video" => {
+                let mut request = serde_json::Map::new();
+                request.insert("kind".into(), json!(if name == "generate_image" { "image" } else { "video" }));
+                for k in ["prompt", "negative", "model", "aspect", "count", "seconds", "seed"] {
+                    if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
+                        request.insert(k.into(), v.clone());
+                    }
+                }
+                let provider = args.get("provider").and_then(Value::as_str).map(String::from);
+                done(self.backend.generate(Value::Object(request), provider.as_deref()))
+            }
             "app_tools" => {
                 let app = s("app");
                 match self.ensure_app(&app, window) {
@@ -321,6 +361,9 @@ mod tests {
         fn stock_download(&mut self, source: &str, id: &str, _: Option<&str>, _: Option<u32>) -> Result<String, String> {
             Ok(format!("Saved Stock/media/{source}/{id}/x.jpg"))
         }
+        fn generate(&mut self, request: Value, provider: Option<&str>) -> Result<String, String> {
+            Ok(format!("{request} {provider:?}"))
+        }
     }
 
     fn rpc<B: HubBackend>(s: &mut HubServer<B>, id: u64, method: &str, params: Value) -> Value {
@@ -345,6 +388,10 @@ mod tests {
 
         let r = rpc(&mut s, 5, "tools/call", json!({ "name": "photocraft__layer_add", "arguments": {} }));
         assert_eq!(r["result"]["isError"], true);
+
+        let r = rpc(&mut s, 7, "tools/call", json!({ "name": "generate_video", "arguments": { "prompt": "waves", "seconds": 8, "provider": "fal" } }));
+        let text = r["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains(r#""kind":"video""#) && text.contains(r#""seconds":8"#) && text.ends_with(r#"Some("fal")"#), "{text}");
 
         let r = rpc(&mut s, 6, "nope", json!({}));
         assert_eq!(r["error"]["code"], -32601);

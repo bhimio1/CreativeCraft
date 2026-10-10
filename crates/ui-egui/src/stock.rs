@@ -578,7 +578,7 @@ impl CreativeCraftApp {
                 let path = self.draft.projects_dir.join(&saved);
                 ui.horizontal(|ui| {
                     if ui.add(theme::primary("Open")).clicked() {
-                        self.open_stock_file(&path);
+                        self.open_media_file(&path);
                     }
                     if ui.add(theme::secondary("Show in folder")).clicked()
                         && let Some(d) = path.parent()
@@ -591,8 +591,8 @@ impl CreativeCraftApp {
         });
     }
 
-    /// Open a downloaded file in the app that opens its kind of file (an installed one first).
-    fn open_stock_file(&mut self, path: &std::path::Path) {
+    /// Open a downloaded or generated file in the app that opens its kind of file (an installed one first).
+    pub(crate) fn open_media_file(&mut self, path: &std::path::Path) {
         let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         let app = self.session.try_lock().ok().and_then(|s| {
             let apps = s.catalog.apps_for_extension(&ext);
@@ -643,7 +643,7 @@ impl CreativeCraftApp {
                 && let Some(p) = path
             {
                 let p = p.clone();
-                self.open_stock_file(&p);
+                self.open_media_file(&p);
             }
             resp.context_menu(|ui| {
                 if ui.button("Show details").clicked() {

@@ -8,6 +8,7 @@
 
 mod assets;
 mod assistant;
+mod generate;
 mod marketplace;
 mod projects;
 mod settings;
@@ -29,6 +30,7 @@ pub enum Page {
     Apps,
     Projects,
     Stock,
+    Generate,
     Files,
     Assistant,
     Marketplace,
@@ -83,6 +85,7 @@ pub struct CreativeCraftApp {
     plugins: Vec<creativecraft_engine::Plugin>,
     marketplace: marketplace::MarketplaceState,
     stock: stock::StockState,
+    generate: generate::GenerateState,
     sync_progress: Option<f32>,
     /// Last result line, shown briefly in the top bar.
     last: Option<(bool, String, f64)>,
@@ -129,6 +132,7 @@ impl CreativeCraftApp {
             plugins: Vec::new(),
             marketplace: marketplace::MarketplaceState::default(),
             stock: stock::StockState::default(),
+            generate: generate::GenerateState::default(),
             sync_progress: None,
             last: None,
             log: Vec::new(),
@@ -147,6 +151,7 @@ impl CreativeCraftApp {
             Ok("files") => app.page = Page::Files,
             Ok("projects") => app.page = Page::Projects,
             Ok("stock") => app.page = Page::Stock,
+            Ok("generate") => app.page = Page::Generate,
             Ok(p) if p.starts_with("stock:") => {
                 app.page = Page::Stock;
                 app.search = p["stock:".len()..].to_string();
@@ -165,11 +170,12 @@ impl CreativeCraftApp {
             }
             Ok("marketplace") => app.page = Page::Marketplace,
             Ok("settings") => app.page = Page::Settings,
-            Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") => {
+            Ok("settings:appearance") | Ok("settings:assistant") | Ok("settings:connections") | Ok("settings:cloud") | Ok("settings:generation") => {
                 app.page = Page::Settings;
                 app.settings_section = match std::env::var("CREATIVECRAFT_DEBUG_PAGE").as_deref() {
                     Ok("settings:appearance") => settings::Section::Appearance,
                     Ok("settings:cloud") => settings::Section::Cloud,
+                    Ok("settings:generation") => settings::Section::Generation,
                     Ok("settings:connections") => settings::Section::Connections,
                     _ => settings::Section::Assistant,
                 };
@@ -272,6 +278,11 @@ impl CreativeCraftApp {
                     };
                     self.install_progress = Some((id, f, label));
                 }
+                Msg::Event(Event::Generate(status)) => {
+                    if self.busy.is_some() {
+                        self.busy = Some(status);
+                    }
+                }
                 Msg::Event(Event::Sync { done, total, .. }) => {
                     self.sync_progress = Some(if total == 0 { 1.0 } else { done as f32 / total as f32 });
                 }
@@ -333,6 +344,7 @@ impl CreativeCraftApp {
                     (Page::Apps, "Apps"),
                     (Page::Projects, "Projects"),
                     (Page::Stock, "Stock"),
+                    (Page::Generate, "Generate"),
                     (Page::Files, "Files"),
                     (Page::Assistant, "Assistant"),
                     (Page::Marketplace, "Marketplace"),
@@ -351,6 +363,7 @@ impl CreativeCraftApp {
                 Page::Assistant => self.assistant_page(ui),
                 Page::Marketplace => self.marketplace_page(ui),
                 Page::Stock => self.stock_page(ui),
+                Page::Generate => self.generate_page(ui),
                 Page::Projects => self.projects_page(ui),
                 Page::Settings => self.settings_page(ui),
                 Page::Apps | Page::Files => {
