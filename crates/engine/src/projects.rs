@@ -123,6 +123,9 @@ pub fn thumbnail(path: &Path) -> Option<Thumbnail> {
     if ext == "blend" {
         return blend_thumbnail(path);
     }
+    if ext == "pdf" {
+        return pdf_thumbnail(path);
+    }
     zip_preview(path).map(Thumbnail::Encoded)
 }
 
@@ -166,6 +169,46 @@ fn zip_preview(path: &Path) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+/// Largest PDF rendered for a preview.
+const MAX_PDF_BYTES: u64 = 200 * 1024 * 1024;
+/// Long side of a PDF preview, in pixels.
+const PDF_PREVIEW_PX: f32 = 480.0;
+
+/// The first page of a PDF, rendered by hayro (pure Rust). Encrypted, damaged or huge files get the
+/// app icon instead; a renderer panic on a strange file is contained, never taking the preview
+/// thread down.
+fn pdf_thumbnail(path: &Path) -> Option<Thumbnail> {
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > MAX_PDF_BYTES {
+        return None;
+    }
+    let data = std::fs::read(path).ok()?;
+    if !data.starts_with(b"%PDF") && !data.windows(5).take(1024).any(|w| w == b"%PDF-") {
+        return None;
+    }
+    std::panic::catch_unwind(move || render_first_page(data)).ok().flatten()
+}
+
+fn render_first_page(data: Vec<u8>) -> Option<Thumbnail> {
+    use hayro::hayro_interpret::InterpreterSettings;
+    use hayro::hayro_syntax::Pdf;
+    use hayro::vello_cpu::color::palette::css::WHITE;
+    let pdf = Pdf::new(data).ok()?;
+    let page = pdf.pages().first()?;
+    let (w, h) = page.render_dimensions();
+    if !(w > 0.0 && h > 0.0) {
+        return None;
+    }
+    let scale = PDF_PREVIEW_PX / w.max(h);
+    let settings = hayro::PixmapSettings { x_scale: scale, y_scale: scale, bg_color: WHITE };
+    let cache = hayro::RenderCache::new();
+    let pixmap = hayro::render(page, &cache, &InterpreterSettings::default(), &hayro::RenderSettings::default(), &settings);
+    let (width, height) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
+    // on a white background every pixel is opaque, so premultiplied = straight RGBA
+    let pixels = pixmap.data_as_u8_slice().to_vec();
+    (width > 0 && height > 0 && pixels.len() == (width * height * 4) as usize).then_some(Thumbnail::Rgba { width, height, pixels })
 }
 
 /// The `TEST` block of an uncompressed `.blend`: width, height, then RGBA rows bottom-up.
@@ -302,6 +345,51 @@ mod tests {
         let root = tmp("text");
         std::fs::write(root.join("plan.md"), "# Plan\n\n- one\n- two\n").unwrap();
         assert_eq!(thumbnail(&root.join("plan.md")), Some(Thumbnail::Text("# Plan\n\n- one\n- two".into())));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A one-page PDF (200×100 points, white) with a black square in the middle, with a correct
+    /// cross-reference table.
+    fn tiny_pdf() -> Vec<u8> {
+        let content = "0 0 0 rg 75 25 50 50 re f";
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>".to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        ];
+        let mut out = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+        for o in offsets {
+            out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes());
+        out
+    }
+
+    #[test]
+    fn pdfs_preview_their_first_page() {
+        let root = tmp("pdf");
+        let pdf = root.join("doc.pdf");
+        std::fs::write(&pdf, tiny_pdf()).unwrap();
+        let Some(Thumbnail::Rgba { width, height, pixels }) = thumbnail(&pdf) else { panic!("no preview") };
+        assert_eq!((width, height), (480, 240), "the long side is 480 px, in the page's shape");
+        let px = |x: u32, y: u32| &pixels[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize];
+        assert!(px(240, 120)[..3].iter().all(|c| *c < 40), "the square in the middle is dark: {:?}", px(240, 120));
+        assert!(px(10, 10)[..3].iter().all(|c| *c > 220), "the page is white: {:?}", px(10, 10));
+        // not a PDF, or a damaged one: no preview, no panic
+        std::fs::write(root.join("fake.pdf"), b"hello").unwrap();
+        assert!(thumbnail(&root.join("fake.pdf")).is_none());
+        let mut broken = tiny_pdf();
+        broken.truncate(60);
+        std::fs::write(root.join("broken.pdf"), broken).unwrap();
+        let _ = thumbnail(&root.join("broken.pdf"));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
