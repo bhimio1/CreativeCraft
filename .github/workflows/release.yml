@@ -155,8 +155,16 @@ jobs:
         run: |
           function Fail($msg) { Write-Output "::error title=MSI test::$msg"; exit 1 }
           $msi = (Resolve-Path dist\*.msi).Path
+          # an "old version" first, so the real install has to upgrade it in place
+          $old = "$env:RUNNER_TEMP\old.msi"
+          wix build packaging\windows\creativecraft.wxs -arch x64 -ext WixToolset.UI.wixext -d "Version=0.0.1" -d "BinDir=$PWD\out" -d "DocDir=$PWD" -o $old
+          $p = Start-Process msiexec -ArgumentList "/i `"$old`" /qn /norestart" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Fail "installing the old version exited $($p.ExitCode)" }
           $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart /l*v install.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { $tail = (Get-Content install.log -Tail 40) -join '%0A'; Fail "install exited $($p.ExitCode)%0A$tail" }
+          $entries = @(Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -eq 'CreativeCraft')
+          if ($entries.Count -ne 1) { Fail "upgrade left $($entries.Count) CreativeCraft entries in Apps & features: $($entries.DisplayVersion -join ', ')" }
+          if ($entries[0].DisplayVersion -eq '0.0.1') { Fail "the old version is still the one installed" }
           $dir = "$env:ProgramFiles\CreativeCraft"
           foreach ($f in 'creativecraft.exe', 'creativecraft-cli.exe', 'README.md', 'NOTICE.txt', 'LICENSE-MIT.txt', 'LICENSE-APACHE.txt') {
             if (-not (Test-Path "$dir\$f")) { Fail "$f missing from $dir" }
@@ -176,7 +184,7 @@ jobs:
           if (Test-Path "$dir\creativecraft.exe") { Fail "files left behind after uninstall" }
           if (Test-Path $lnk) { Fail "shortcut left behind after uninstall" }
           if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -like "*$dir*") { Fail "PATH entry left behind after uninstall" }
-          Write-Output "::notice title=MSI::installs, runs from PATH, and uninstalls cleanly"
+          Write-Output "::notice title=MSI::upgrades an older version in place, installs, runs from PATH, and uninstalls cleanly"
 
       # ── macOS disk image (.dmg) ───────────────────────────────────────────────────────────────
       - name: Build the DMG
