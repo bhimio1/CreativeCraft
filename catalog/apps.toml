@@ -331,6 +331,21 @@ homepage = "https://godotengine.org/download/"
 bugs = "https://github.com/godotengine/godot/issues"
 
 [[app]]
+id = "libreoffice"
+name = "LibreOffice"
+category = "Office"
+summary = "Office suite: documents, spreadsheets, presentations and drawings in OpenDocument and other formats."
+kind = "external"
+path_names = ["libreoffice", "soffice"]
+mac_bundle = "LibreOffice.app"
+windows_dirs = ["LibreOffice"]
+flatpak = "org.libreoffice.LibreOffice"
+license = "MPL-2.0"
+homepage = "https://www.libreoffice.org/download/download-libreoffice/"
+bugs = "https://wiki.documentfoundation.org/QA/BugReport"
+opens = ["odt", "ods", "odp", "odg", "doc", "xls", "ppt", "docx", "xlsx", "pptx", "rtf", "csv"]
+
+[[app]]
 id = "comfyui"
 name = "ComfyUI"
 category = "AI"

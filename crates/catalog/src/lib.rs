@@ -258,4 +258,17 @@ mod tests {
         );
         assert!(e.is_err());
     }
+
+    #[test]
+    fn office_files_prefer_their_own_apps() {
+        let c = Catalog::builtin().unwrap();
+        let first = |ext: &str| c.apps_for_extension(ext).first().map(|a| a.id.clone());
+        // LibreOffice's own format opens in it; Office formats stay with the Craft apps, with
+        // LibreOffice offered as another app that opens them
+        assert_eq!(first("odt").as_deref(), Some("libreoffice"));
+        assert_eq!(first("ods").as_deref(), Some("libreoffice"));
+        assert_eq!(first("docx").as_deref(), Some("wordcraft"));
+        assert_eq!(first("xlsx").as_deref(), Some("gridcraft"));
+        assert!(c.apps_for_extension("pptx").iter().any(|a| a.id == "libreoffice"));
+    }
 }

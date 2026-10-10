@@ -2,7 +2,7 @@
 
 ## M0: scaffold (this commit)
 - [x] Workspace, layering, lints mirroring the Craft apps
-- [x] Catalog (12 Craft apps, SolveCraft, 8 external open-source apps) with user overlay
+- [x] Catalog (12 Craft apps, SolveCraft, 9 external open-source apps) with user overlay
 - [x] Installer: GitHub releases, asset matching, SHA-256 verify, unpack, side-by-side update, launch
 - [x] External app detection (PATH, macOS bundles, Program Files)
 - [x] Three-way sync planner (tested) + executor; Google Drive and folder backends
