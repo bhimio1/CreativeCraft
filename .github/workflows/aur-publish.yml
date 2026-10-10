@@ -49,9 +49,15 @@ jobs:
           set -uo pipefail
           fail() { echo "::error title=AUR::$1"; exit 1; }
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          # tolerate keys pasted with Windows line endings or without the final newline
-          printf '%s\n' "$AUR_KEY" | tr -d '\r' > ~/.ssh/aur && chmod 600 ~/.ssh/aur
-          head -1 ~/.ssh/aur | grep -q -- '-----BEGIN' || fail "The AUR_SSH_PRIVATE_KEY secret doesn't look like a private key. Paste the whole contents of the aur_key file (not aur_key.pub), including the BEGIN and END lines."
+          # tolerate keys pasted with Windows line endings, surrounding blank lines or spaces
+          printf '%s\n' "$AUR_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | sed -e '/./,$!d' > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          first=$(head -1 ~/.ssh/aur)
+          case "$first" in
+            "-----BEGIN"*) ;;
+            ssh-*|ecdsa-*) fail "The AUR_SSH_PRIVATE_KEY secret holds a public key (it starts with ssh-…). Put the contents of aur_key (the file without .pub) in the secret instead; aur_key.pub goes in your AUR account." ;;
+            "") fail "The AUR_SSH_PRIVATE_KEY secret is empty." ;;
+            *) fail "The AUR_SSH_PRIVATE_KEY secret doesn't start with a -----BEGIN … PRIVATE KEY----- line ($(wc -l < ~/.ssh/aur) lines, first line ${#first} characters). Paste the whole contents of aur_key, including the BEGIN and END lines." ;;
+          esac
           pub=$(ssh-keygen -y -P '' -f ~/.ssh/aur 2>&1) || fail "The private key can't be read without a passphrase: ${pub//$'\n'/ }. Make the key with -N \"\" (no passphrase) and update the secret."
           echo "Public key for this secret: $pub"
           ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null || fail "Couldn't reach aur.archlinux.org over SSH."
