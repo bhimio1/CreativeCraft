@@ -16,6 +16,10 @@ pub trait HubBackend {
     /// Start `id`'s MCP server process (stdio piped). `window`: drive the app's visible window
     /// where the app supports it (`None`: the user's default).
     fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String>;
+    /// Search public-domain stock media: `{results:[…], has_more, unavailable_sources}`.
+    fn stock_search(&mut self, query: &str, kind: Option<&str>, page: u32) -> Result<Value, String>;
+    /// Download a stock asset into the projects folder; returns where it went and its credit line.
+    fn stock_download(&mut self, source: &str, id: &str, size: Option<&str>, max_width: Option<u32>) -> Result<String, String>;
 }
 
 /// One running app automation server. An app can have several, each its own process with its
@@ -56,6 +60,16 @@ fn hub_tools() -> Vec<Value> {
         json!({ "name": "app_tools", "description": "Start an installed app's automation (if needed) and list its tools. Afterwards they are also callable directly as `<app>__<tool>`. `app` may also be an instance id from app_open_instance. Apps with \"window\": true in hub_list_apps open their window so the user can watch; save files with paths relative to the projects folder.", "inputSchema": app_window_arg.clone() }),
         json!({ "name": "app_call", "description": "Call one of an app's tools (see app_tools). `app` may be an app id or an instance id.", "inputSchema": { "type": "object", "properties": { "app": { "type": "string" }, "tool": { "type": "string" }, "arguments": { "type": "object" } }, "required": ["app", "tool"] } }),
         json!({ "name": "app_open_instance", "description": "Start another, independent instance of an app (its own window where the app has one), with its own documents and state, to work on several things at once. Returns the instance id (e.g. \"photocraft-2\"); call its tools as `<instance>__<tool>`.", "inputSchema": app_window_arg }),
+        json!({ "name": "stock_search", "description": "Search free stock media: public-domain and CC0 photos, artworks, illustrations, videos and audio from museums, NASA and open archives. Returns source, id, title, rights, a credit line and the sizes on offer.", "inputSchema": { "type": "object", "properties": {
+            "query": { "type": "string" },
+            "kind": { "type": "string", "enum": ["photo", "illustration", "artwork", "video", "audio"] },
+            "page": { "type": "integer", "minimum": 1 }
+        }, "required": ["query"] } }),
+        json!({ "name": "stock_download", "description": "Download a stock asset (source and id from stock_search) into the user's projects folder under Stock/, ready to open in an app. Picks a size up to 3000 px wide unless `size` (a label from stock_search) or `max_width` is given. Returns the file's path in the projects folder and its credit line.", "inputSchema": { "type": "object", "properties": {
+            "source": { "type": "string" }, "id": { "type": "string" },
+            "size": { "type": "string", "description": "A size label from stock_search, e.g. \"Large\"" },
+            "max_width": { "type": "integer", "minimum": 1 }
+        }, "required": ["source", "id"] } }),
         json!({ "name": "app_instances", "description": "List the running app instances: instance id, app id and tool count.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "app_close_instance", "description": "Stop one app instance's automation. Headless: anything unsaved is lost, so save first. A visible window stays open for the user.", "inputSchema": { "type": "object", "properties": { "instance": { "type": "string", "description": "Instance id from app_open_instance or app_instances" } }, "required": ["instance"] } }),
     ]
@@ -200,6 +214,19 @@ impl<B: HubBackend> HubServer<B> {
                 done(self.backend.launch(&s("app"), &files))
             }
             "hub_sync_projects" => done(self.backend.sync()),
+            "stock_search" => {
+                let page = args.get("page").and_then(Value::as_u64).unwrap_or(1) as u32;
+                let kind = args.get("kind").and_then(Value::as_str).map(String::from);
+                match self.backend.stock_search(&s("query"), kind.as_deref(), page) {
+                    Ok(v) => text_result(v.to_string(), false),
+                    Err(e) => text_result(e, true),
+                }
+            }
+            "stock_download" => {
+                let size = args.get("size").and_then(Value::as_str).map(String::from);
+                let max_width = args.get("max_width").and_then(Value::as_u64).map(|w| w.min(u64::from(u32::MAX)) as u32);
+                done(self.backend.stock_download(&s("source"), &s("id"), size.as_deref(), max_width))
+            }
             "app_tools" => {
                 let app = s("app");
                 match self.ensure_app(&app, window) {
@@ -288,6 +315,12 @@ mod tests {
         fn spawn_mcp(&mut self, id: &str, _: Option<bool>) -> Result<Child, String> {
             Err(format!("{id} has no MCP server"))
         }
+        fn stock_search(&mut self, query: &str, _: Option<&str>, _: u32) -> Result<Value, String> {
+            Ok(json!({ "results": [{ "source": "met", "id": "1", "title": query }] }))
+        }
+        fn stock_download(&mut self, source: &str, id: &str, _: Option<&str>, _: Option<u32>) -> Result<String, String> {
+            Ok(format!("Saved Stock/media/{source}/{id}/x.jpg"))
+        }
     }
 
     fn rpc<B: HubBackend>(s: &mut HubServer<B>, id: u64, method: &str, params: Value) -> Value {
@@ -340,6 +373,12 @@ mod tests {
             Err("no".into())
         }
         fn sync(&mut self) -> Result<String, String> {
+            Err("no".into())
+        }
+        fn stock_search(&mut self, _: &str, _: Option<&str>, _: u32) -> Result<Value, String> {
+            Err("no".into())
+        }
+        fn stock_download(&mut self, _: &str, _: &str, _: Option<&str>, _: Option<u32>) -> Result<String, String> {
             Err("no".into())
         }
         fn spawn_mcp(&mut self, _: &str, _: Option<bool>) -> Result<Child, String> {

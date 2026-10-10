@@ -1,0 +1,17 @@
+[package]
+name = "creativecraft-stock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CreativeCraft L2: public-domain stock media through StockCraft's library, as a blocking API"
+
+[lints]
+workspace = true
+
+[dependencies]
+stockcraft-local = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }

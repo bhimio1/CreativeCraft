@@ -20,6 +20,7 @@ creativecraft-install = { path = "crates/install" }     # L2
 creativecraft-cloud = { path = "crates/cloud" }         # L2
 creativecraft-mcp = { path = "crates/mcp" }             # L2
 creativecraft-agent = { path = "crates/agent" }         # L2
+creativecraft-stock = { path = "crates/stock" }         # L2
 creativecraft-engine = { path = "crates/engine" }       # L3
 creativecraft-ui-egui = { path = "crates/ui-egui" }     # L4
 
@@ -42,6 +43,10 @@ directories = "6"
 open = "5"
 eframe = { version = "0.36", default-features = false }
 egui = "0.36"
+# StockCraft's embeddable library (public-domain stock media), pinned to a published commit so
+# CreativeCraft builds the same everywhere; move the pin forward deliberately.
+stockcraft-local = { git = "https://github.com/bhimio1/stockcraft", rev = "c5c19e00a403b8b27c25ca494ad711c698406b9e" }
+tokio = { version = "1", default-features = false, features = ["rt", "time", "net", "io-util"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 # the Assistant page's terminal: a real PTY (ConPTY on Windows) and a VT parser
 portable-pty = "0.9"

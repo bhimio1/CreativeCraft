@@ -64,6 +64,7 @@ Linux builds need the usual windowing dev packages for eframe (Wayland/X11, xkbc
 | **Projects** | A grid of recent files in the projects folder with previews taken from the files themselves (embedded thumbnails in ZIP-based documents such as `.pcraft`, OpenDocument and Office files, `.blend` thumbnails, images, the first lines of text files), each opening in the app that made it. |
 | **Cloud sync** | Keep the projects folder in sync with **Google Drive**, any **WebDAV** server (Nextcloud, ownCloud, Synology, QNAP, TrueNAS, pCloud…), **S3-compatible storage** (AWS, Backblaze B2, Cloudflare R2, Wasabi, MinIO), anything your own **rclone** reaches (Dropbox, OneDrive, Box, SFTP, SMB…), or **any folder** (a synced folder or a mounted NAS share). Three-way sync never overwrites: conflicting edits are kept side by side, deletions go to a trash, downloads are checksum-checked before they replace anything. `.creativecraftignore` for files not to sync. See [docs/cloud-sync.md](docs/cloud-sync.md). |
 | **AI assistant** | The Assistant page runs agents in tabs: each tab is a terminal with an agent CLI's own interactive UI (any mix of Claude Code, OpenCode, Hermes, Antigravity or your own) in the projects folder, with the hub as an MCP server, so several agents can work on different tasks at once. `creativecraft-cli chat` runs one headless turn instead. No API keys in CreativeCraft: the agent uses its own account and model. See [docs/ai-chat.md](docs/ai-chat.md). |
+| **Stock media** | Free public-domain and CC0 photos, art, video, audio and more from museums, NASA and open archives, through [StockCraft](https://github.com/bhimio1/stockcraft): search, preview with rights and credit line, download into the projects folder. Agents can search and download too. See [docs/stock.md](docs/stock.md). |
 | **Marketplace** | Plugins that give agents tools for more apps: Blender, Godot and Inkscape to start. Each is an MCP server run from its publisher's own package; installing shows exactly what will run first. See [docs/marketplace.md](docs/marketplace.md). |
 | **MCP hub** | `creativecraft-cli mcp` is an MCP server (stdio). It exposes hub tools (`hub_list_apps`, `hub_install_app`, `hub_launch_app`, `hub_sync_projects`) and starts each app's own `<app>-cli mcp` on demand, re-exporting its tools as `<app>__<tool>`. Agents work in the app's visible window by default (the desktop app's control channel), so you can watch and take over, and can open more independent instances, each its own window (`app_open_instance` → `photocraft-2__<tool>`, …). Files they save go to the projects folder. |
 
@@ -106,6 +107,7 @@ crates/
   install      L2  GitHub releases, download + verify, unpack, detect, launch
   cloud        L2  CloudStore trait; Drive, WebDAV, S3, rclone, folder backends; sync executor
   mcp          L2  MCP stdio client, hub MCP server
+  stock        L2  stock media through StockCraft's library (blocking wrapper)
   agent        L2  AI assistant: agent-CLI backends, MCP wiring, interactive launch, headless turns
   engine       L3  Session + command registry (UI, CLI and agent all call this)
   ui-egui      L4  the window (thin)

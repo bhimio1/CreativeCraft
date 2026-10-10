@@ -15,6 +15,9 @@ USAGE
   creativecraft-cli plugins                 Marketplace plugins and their state
   creativecraft-cli plugins install|remove|enable|disable <id>
   creativecraft-cli plugins refresh        fetch the newest plugin list
+  creativecraft-cli stock search <words>    free public-domain photos, art, video, audio [--kind …]
+  creativecraft-cli stock download <source> <id> [size]   into the projects folder's Stock/
+  creativecraft-cli stock list [words]     what's downloaded, offline
   creativecraft-cli bug [app]              report a bug in an app (or, with no app, in CreativeCraft)
   creativecraft-cli chat <message>         one AI chat turn (continues the current chat)
   creativecraft-cli chat --new             start a fresh chat

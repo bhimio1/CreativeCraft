@@ -10,6 +10,7 @@ mod plugins;
 pub mod projects;
 mod report;
 mod settings;
+pub mod stock;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
@@ -47,6 +48,8 @@ pub enum EngineError {
     Live(String),
     #[error("{0}")]
     Plugin(String),
+    #[error("{0}")]
+    Stock(#[from] creativecraft_stock::StockError),
 }
 
 /// Everything the hub can do. Ids (`app.install`, …) are stable: the CLI and docs use them.
@@ -69,6 +72,14 @@ pub enum Command {
     SetPluginEnabled(String, bool),
     /// Fetch the newest plugin list from the CreativeCraft repository.
     RefreshMarketplace,
+    /// Download a stock asset into `<projects>/Stock`: a size label, or the largest no wider than a
+    /// width, or (neither) at most 3000 px wide.
+    StockDownload {
+        source: String,
+        id: String,
+        size: Option<String>,
+        max_width: Option<u32>,
+    },
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -90,6 +101,7 @@ impl Command {
             Command::RemovePlugin(_) => "plugin.remove",
             Command::SetPluginEnabled(..) => "plugin.enable",
             Command::RefreshMarketplace => "plugin.refresh",
+            Command::StockDownload { .. } => "stock.download",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -253,6 +265,7 @@ impl Session {
             Command::RemovePlugin(id) => self.remove_plugin(&id),
             Command::SetPluginEnabled(id, on) => self.set_plugin_enabled(&id, on),
             Command::RefreshMarketplace => self.refresh_marketplace(),
+            Command::StockDownload { source, id, size, max_width } => self.stock_download(&source, &id, size.as_deref(), max_width),
             Command::TestCloud => {
                 let mut store = self.cloud_store()?;
                 Ok(sync::test_connection(store.as_mut())?)
@@ -353,6 +366,13 @@ impl creativecraft_mcp::HubBackend for Session {
     }
     fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String> {
         Session::spawn_mcp(self, id, window).map_err(|e| e.to_string())
+    }
+    fn stock_search(&mut self, query: &str, kind: Option<&str>, page: u32) -> Result<Value, String> {
+        self.stock_search_json(query, kind, page).map_err(|e| e.to_string())
+    }
+    fn stock_download(&mut self, source: &str, id: &str, size: Option<&str>, max_width: Option<u32>) -> Result<String, String> {
+        let cmd = Command::StockDownload { source: source.into(), id: id.into(), size: size.map(String::from), max_width };
+        self.execute(cmd, &mut |_| {}).map_err(|e| e.to_string())
     }
 }
 

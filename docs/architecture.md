@@ -24,6 +24,13 @@ L0  platform (std)        sync-plan (std)
 A crate only depends on lower layers. `mcp` reaches the engine through the `HubBackend` trait so
 L2 never depends on L3.
 
+## Stock media
+
+`creativecraft-stock` (L2) wraps StockCraft's `stockcraft-local` (async, its own runtime) in a
+blocking API. The engine's `Command::StockDownload` and the hub's `stock_search` / `stock_download`
+save into `<projects>/Stock`; the Stock page searches and fetches previews on its own threads. See
+[stock.md](stock.md).
+
 ## Plugins
 
 `marketplace/plugins.toml` (crate `creativecraft-marketplace`) lists MCP-server plugins; the

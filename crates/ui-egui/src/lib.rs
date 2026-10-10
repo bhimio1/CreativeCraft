@@ -13,6 +13,7 @@ mod projects;
 mod settings;
 mod sources;
 mod splash;
+mod stock;
 mod terminal;
 mod theme;
 
@@ -27,6 +28,7 @@ use std::sync::{Arc, Mutex};
 pub enum Page {
     Apps,
     Projects,
+    Stock,
     Files,
     Assistant,
     Marketplace,
@@ -80,6 +82,7 @@ pub struct CreativeCraftApp {
     /// The Marketplace's plugin list, copied out of the session.
     plugins: Vec<creativecraft_engine::Plugin>,
     marketplace: marketplace::MarketplaceState,
+    stock: stock::StockState,
     sync_progress: Option<f32>,
     /// Last result line, shown briefly in the top bar.
     last: Option<(bool, String, f64)>,
@@ -125,6 +128,7 @@ impl CreativeCraftApp {
             cloud_remotes: None,
             plugins: Vec::new(),
             marketplace: marketplace::MarketplaceState::default(),
+            stock: stock::StockState::default(),
             sync_progress: None,
             last: None,
             log: Vec::new(),
@@ -142,6 +146,11 @@ impl CreativeCraftApp {
         match std::env::var("CREATIVECRAFT_DEBUG_PAGE").as_deref() {
             Ok("files") => app.page = Page::Files,
             Ok("projects") => app.page = Page::Projects,
+            Ok("stock") => app.page = Page::Stock,
+            Ok(p) if p.starts_with("stock:") => {
+                app.page = Page::Stock;
+                app.search = p["stock:".len()..].to_string();
+            }
             Ok(p) if p.starts_with("source:") => {
                 if let Some(r) = app.rows.iter().find(|r| r.id == p["source:".len()..]) {
                     app.source_dialog = Some(sources::SourceDraft::for_row(r, &app.draft));
@@ -268,6 +277,9 @@ impl CreativeCraftApp {
                 }
                 Msg::Done(label, r) => {
                     self.busy = None;
+                    if let Ok(text) = &r {
+                        self.stock_downloaded(text);
+                    }
                     self.projects.mark_stale();
                     self.install_progress = None;
                     self.sync_progress = None;
@@ -320,6 +332,7 @@ impl CreativeCraftApp {
                 for (page, label) in [
                     (Page::Apps, "Apps"),
                     (Page::Projects, "Projects"),
+                    (Page::Stock, "Stock"),
                     (Page::Files, "Files"),
                     (Page::Assistant, "Assistant"),
                     (Page::Marketplace, "Marketplace"),
@@ -337,6 +350,7 @@ impl CreativeCraftApp {
             match self.page {
                 Page::Assistant => self.assistant_page(ui),
                 Page::Marketplace => self.marketplace_page(ui),
+                Page::Stock => self.stock_page(ui),
                 Page::Projects => self.projects_page(ui),
                 Page::Settings => self.settings_page(ui),
                 Page::Apps | Page::Files => {
@@ -407,10 +421,11 @@ impl CreativeCraftApp {
             let hint = match self.page {
                 Page::Projects => "🔍  Search projects",
                 Page::Marketplace => "🔍  Search plugins",
+                Page::Stock => "🔍  Search free stock media",
                 _ => "🔍  Search apps",
             };
             ui.add(egui::TextEdit::singleline(&mut self.search).hint_text(hint).desired_width(320.0).margin(vec2(10.0, 6.0)));
-            if !self.search.is_empty() && !matches!(self.page, Page::Apps | Page::Projects | Page::Marketplace) {
+            if !self.search.is_empty() && !matches!(self.page, Page::Apps | Page::Projects | Page::Marketplace | Page::Stock) {
                 self.page = Page::Apps;
             }
 

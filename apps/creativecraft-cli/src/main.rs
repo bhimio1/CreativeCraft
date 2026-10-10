@@ -10,6 +10,9 @@
 //! creativecraft-cli login | logout         Google Drive sign-in
 //! creativecraft-cli projects [--json]     recent files in the projects folder
 //! creativecraft-cli plugins [install|remove|enable|disable <id> | refresh]   Marketplace plugins
+//! creativecraft-cli stock search <words…> [--kind photo|illustration|artwork|video|audio]
+//! creativecraft-cli stock download <source> <id> [size label]   into <projects>/Stock
+//! creativecraft-cli stock list [words…]                         what's downloaded (offline)
 //! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
 //! creativecraft-cli chat --new              start a fresh chat
@@ -181,6 +184,48 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                 Some("disable") => out!("{}", s.execute(Command::SetPluginEnabled(id()?, false), &mut |_| {})?),
                 Some("refresh") => out!("{}", s.execute(Command::RefreshMarketplace, &mut |_| {})?),
                 Some(other) => return Err(EngineError::Plugin(format!("unknown plugins command `{other}`"))),
+            }
+        }
+        "stock" => {
+            let words = |from: usize| rest.iter().skip(from).take_while(|a| !a.starts_with("--")).cloned().collect::<Vec<_>>().join(" ");
+            match rest.first().map(String::as_str) {
+                Some("search") => {
+                    let kind = rest.iter().position(|a| a == "--kind").and_then(|i| rest.get(i + 1)).map(String::as_str);
+                    let v = s.stock_search_json(&words(1), kind, 1)?;
+                    for a in v["results"].as_array().into_iter().flatten() {
+                        let size = match (a["width"].as_u64(), a["height"].as_u64()) {
+                            (Some(w), Some(h)) => format!("{w}×{h}"),
+                            _ => String::new(),
+                        };
+                        out!(
+                            "{:<10} {:<14} {:<12} {:<11} {}",
+                            a["source"].as_str().unwrap_or(""),
+                            a["id"].as_str().unwrap_or(""),
+                            a["kind"].as_str().unwrap_or(""),
+                            size,
+                            a["title"].as_str().unwrap_or("")
+                        );
+                    }
+                    for f in v["unavailable_sources"].as_array().into_iter().flatten() {
+                        eprintln!("({} didn't answer: {})", f["source"].as_str().unwrap_or(""), f["message"].as_str().unwrap_or(""));
+                    }
+                }
+                Some("download") => {
+                    let (Some(source), Some(id)) = (rest.get(1), rest.get(2)) else {
+                        return Err(EngineError::Plugin("usage: creativecraft-cli stock download <source> <id> [size label]".into()));
+                    };
+                    let size = rest.get(3).cloned();
+                    out!("{}", s.execute(Command::StockDownload { source: source.clone(), id: id.clone(), size, max_width: None }, &mut |_| {})?);
+                }
+                Some("list") => {
+                    let lib = s.stock()?;
+                    for item in lib.local(&words(1)) {
+                        for f in &item.files {
+                            out!("{:<10} {:<14} {:<10} {}", item.asset.source, item.asset.id, f.label, item.dir.clone() + "/" + &f.name);
+                        }
+                    }
+                }
+                _ => return Err(EngineError::Plugin("usage: creativecraft-cli stock search|download|list …".into())),
             }
         }
         "bug" | "report-bug" => {

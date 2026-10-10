@@ -24,6 +24,7 @@
 - [x] Projects page: recent files with embedded previews; `creativecraft-cli projects`
 - [x] Install sources: a fork's releases, or git builds (official or fork, any branch) with cargo
 - [x] Installed external apps show their own icon (Linux desktop entries, macOS bundles)
+- [x] Stock page and agent tools for public-domain media through StockCraft
 - [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
 - [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
