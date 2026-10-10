@@ -63,6 +63,8 @@ pub(crate) struct GenerateState {
     /// A picture to start from (edit, restyle, or a video's first frame), and how much to change it.
     start: Option<PathBuf>,
     strength: u8,
+    /// A mask painted over the starting picture (only that part changes).
+    mask: Option<crate::mask::MaskPaint>,
     /// While a generation runs: what the service says, and when it started.
     running: Option<(String, f64)>,
     /// Stops the running generation.
@@ -99,6 +101,7 @@ impl Default for GenerateState {
             seed: String::new(),
             start: None,
             strength: 60,
+            mask: None,
             running: None,
             cancel: Default::default(),
             error: None,
@@ -237,6 +240,7 @@ impl CreativeCraftApp {
             seed: g.seed.trim().parse().ok(),
             images: g.start.iter().cloned().collect(),
             strength: g.start.as_ref().map(|_| g.strength),
+            mask: if g.kind == Kind::Image { self.current_mask() } else { None },
         };
         let provider = (!g.provider.is_empty()).then(|| g.provider.clone());
         let job = match GenerationJob::new(&self.draft, &request, provider.as_deref()) {
@@ -497,12 +501,75 @@ impl CreativeCraftApp {
             });
         });
         if !video {
+            self.generate_mask_row(ui, &path);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("How much to change").size(12.0).color(t.muted));
                 ui.add(egui::Slider::new(&mut self.generate.strength, 1..=100).suffix("%")).on_hover_text(
                     "Where the service lets you choose: low keeps the picture close, high changes more. Editing models follow your words instead.",
                 );
             });
+        }
+    }
+
+    /// Debug builds: open the Generate page on `picture` with the mask editor open and a stroke
+    /// painted, for screenshots.
+    #[cfg(debug_assertions)]
+    pub(crate) fn debug_mask(&mut self, picture: &Path) {
+        self.generate_from(picture);
+        self.generate.mask = crate::mask::MaskPaint::new(picture).map(|mut m| {
+            m.debug_stroke();
+            m
+        });
+    }
+
+    /// The saved mask, if it belongs to the current starting picture.
+    fn current_mask(&self) -> Option<PathBuf> {
+        let m = self.generate.mask.as_ref()?;
+        (Some(&m.source) == self.generate.start.as_ref()).then(|| m.saved.clone()).flatten()
+    }
+
+    /// "Paint area to change", or the painted mask with Edit and Remove; and the editor window.
+    fn generate_mask_row(&mut self, ui: &mut egui::Ui, picture: &Path) {
+        let t = theme::Tokens::get();
+        if self.generate.mask.as_ref().is_some_and(|m| m.source != picture) {
+            self.generate.mask = None;
+        }
+        ui.horizontal(|ui| match &mut self.generate.mask {
+            Some(m) if m.saved.is_some() => {
+                ui.label(RichText::new("Only the painted area changes").size(12.0).color(t.ink));
+                if ui.add(egui::Button::new(RichText::new("Edit").size(12.0).color(t.muted)).frame(false)).clicked() {
+                    m.editing = true;
+                }
+                if ui.add(egui::Button::new(RichText::new("Remove").size(12.0).color(t.muted)).frame(false)).clicked() {
+                    self.generate.mask = None;
+                }
+            }
+            _ => {
+                if ui
+                    .add(egui::Button::new(RichText::new("+ Paint area to change").size(12.0).color(t.muted)).frame(false))
+                    .on_hover_text("Inpainting: change only part of the picture")
+                    .clicked()
+                {
+                    match crate::mask::MaskPaint::new(picture) {
+                        Some(m) => self.generate.mask = Some(m),
+                        None => self.generate.error = Some("can't read that picture to paint on".into()),
+                    }
+                }
+            }
+        });
+        let masks = self.draft.projects_dir.join(".creativecraft").join("masks");
+        if let Some(m) = &mut self.generate.mask
+            && m.editing
+            && m.editor(ui.ctx())
+        {
+            match m.save(&masks) {
+                Ok(path) => m.saved = Some(path),
+                Err(e) => self.generate.error = Some(format!("couldn't save the mask: {e}")),
+            }
+        }
+        // closed without Done and never saved: no mask
+        if self.generate.mask.as_ref().is_some_and(|m| !m.editing && m.saved.is_none()) {
+            self.generate.mask = None;
         }
     }
 

@@ -144,7 +144,7 @@ impl GenerationJob {
         }
         let mut request = request.clone();
         // starting pictures may be given relative to the projects folder
-        for path in &mut request.images {
+        for path in request.images.iter_mut().chain(request.mask.as_mut()) {
             if path.is_relative() {
                 *path = settings.projects_dir.join(&*path);
             }
@@ -182,6 +182,7 @@ impl GenerationJob {
                 "model": o.model, "aspect": r.aspect, "seconds": r.seconds, "seed": r.seed, "created": created,
                 "started_from": r.images.iter().map(|i| i.strip_prefix(&self.projects_dir).unwrap_or(i).display().to_string()).collect::<Vec<_>>(),
                 "strength": r.strength,
+                "mask": r.mask.as_ref().map(|m| m.strip_prefix(&self.projects_dir).unwrap_or(m).display().to_string()),
             });
             write_atomic(&sidecar_path(&path), &serde_json::to_vec_pretty(&sidecar).map_err(std::io::Error::other)?)?;
             files.push(path);
@@ -341,6 +342,7 @@ mod tests {
             seed: Some(7),
             images: Vec::new(),
             strength: None,
+            mask: None,
         };
         let out = s.execute(crate::Command::Generate { request, provider: None }, &mut |_| {}).unwrap();
         assert!(out.starts_with("Saved Generated/") && out.contains("a-red-kite-"), "{out}");

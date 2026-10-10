@@ -56,6 +56,23 @@ Kontext follow your words instead.
 | ComfyUI | Uploaded to ComfyUI; the built-in workflow becomes image-to-image, or put `{{image}}` in your Load Image node |
 | Stable Diffusion WebUI | img2img |
 
+### Changing only part of a picture
+
+Under the starting picture, **Paint area to change** opens a brush: paint over what should change
+and press **Done**, and only that part is regenerated (inpainting). The mask is kept in
+`.creativecraft/masks/` in the projects folder (not synced). From the command line or an agent, a
+mask is a picture the size of the original (or any size; it's scaled): white where to change,
+black where to keep.
+
+| Service | Masks |
+|---|---|
+| OpenAI and compatible servers | Yes (converted to OpenAI's transparent-means-change form) |
+| Replicate | With models that take one (FLUX Fill, SDXL inpainting, …); others say so |
+| fal | As `mask_url`, for fal's inpainting models |
+| ComfyUI | The built-in workflow re-samples only the painted part; or put `{{mask}}` in a Load Image (as Mask) node |
+| Stable Diffusion WebUI | img2img inpainting |
+| Google, xAI | No masks: say in words what to change instead |
+
 Agents can start from pictures too, but only files inside the projects folder: an agent can't
 send other files on your computer to a service.
 
@@ -81,6 +98,7 @@ Then put these placeholders where the values go and set the file as **Your workf
 | `{{seed}}`, `{{width}}`, `{{height}}`, `{{count}}` | numbers (the whole string must be the placeholder) |
 | `{{model}}` | the model field |
 | `{{image}}` | the starting picture (uploaded to ComfyUI first), for a Load Image node |
+| `{{mask}}` | the mask (white = change), uploaded to ComfyUI first |
 | `{{denoise}}` | how much to change it, 0.01–1 (a number) |
 
 Every file the workflow saves (SaveImage, video combine nodes, …) is brought back. Previews and
@@ -129,6 +147,7 @@ creativecraft-cli generate default video fal
 creativecraft-cli generate image "a lighthouse at dusk, oil painting" --aspect landscape --count 2
 creativecraft-cli generate video "slow drone shot over a misty forest" --seconds 8 --provider fal
 creativecraft-cli generate image "the same scene in winter" --image Stock/harbour.jpg --strength 50
+creativecraft-cli generate image "a red sailing boat" --image Stock/harbour.jpg --mask boat-area.png --provider comfyui
 ```
 
 ## Troubleshooting

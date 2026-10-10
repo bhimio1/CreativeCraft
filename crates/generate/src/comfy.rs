@@ -2,7 +2,8 @@
 //! encoders, sampler, decoder, save) works with any Stable Diffusion checkpoint; for anything else
 //! (video, ControlNet, FLUX…) the user points at their own workflow exported with "Export (API)",
 //! with `{{prompt}}`, `{{negative}}`, `{{seed}}`, `{{width}}`, `{{height}}`, `{{count}}`,
-//! `{{model}}`, `{{image}}` (a starting picture, uploaded first) and `{{denoise}}` where the values go.
+//! `{{model}}`, `{{image}}` (a starting picture, uploaded first), `{{mask}}` (its mask, white =
+//! change) and `{{denoise}}` where the values go.
 
 use crate::http::{IMAGE_LIMIT, Part, VIDEO_LIMIT, get_bytes, get_json, poll, post_json, post_multipart, send_stop};
 use crate::{GenError, Kind, Output, Provider, Request, sniff_ext};
@@ -24,7 +25,7 @@ fn seed(r: &Request) -> u64 {
 
 /// The built-in workflow, in ComfyUI's API format: text to image, or with `image` (an uploaded
 /// file name) image to image.
-pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str, image: Option<&str>) -> Value {
+pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str, image: Option<&str>, mask: Option<&str>) -> Value {
     let (w, h) = r.aspect.pixels();
     let mut wf = json!({
         "3": { "class_type": "KSampler", "inputs": {
@@ -46,6 +47,12 @@ pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str, image: Option<&str
         wf["3"]["inputs"]["denoise"] = json!(r.denoise());
         if let Value::Object(m) = &mut wf {
             m.remove("5");
+        }
+        if let Some(mask) = mask {
+            // only the painted part is re-sampled
+            wf["13"] = json!({ "class_type": "LoadImageMask", "inputs": { "image": mask, "channel": "red" } });
+            wf["14"] = json!({ "class_type": "SetLatentNoiseMask", "inputs": { "samples": ["11", 0], "mask": ["13", 0] } });
+            wf["12"]["inputs"]["samples"] = json!(["14", 0]);
         }
     }
     wf
@@ -76,19 +83,23 @@ fn walk(v: &mut Value, f: &dyn Fn(&str) -> Option<Value>) {
 
 /// Fill the `{{…}}` placeholders in a user's workflow. A string that is exactly a numeric
 /// placeholder becomes a number; text placeholders are replaced inside strings.
-pub(crate) fn fill_workflow(v: &mut Value, r: &Request, model: &str, image: Option<&str>) {
+pub(crate) fn fill_workflow(v: &mut Value, r: &Request, model: &str, image: Option<&str>, mask: Option<&str>) {
     let (w, h) = r.aspect.pixels();
     let s = seed(r);
-    let image = image.unwrap_or("");
+    let (image, mask) = (image.unwrap_or(""), mask.unwrap_or(""));
     walk(v, &|text: &str| match text {
         "{{seed}}" => Some(json!(s)),
         "{{denoise}}" => Some(json!(r.denoise())),
         "{{width}}" => Some(json!(w)),
         "{{height}}" => Some(json!(h)),
         "{{count}}" => Some(json!(r.count)),
-        t if t.contains("{{") => {
-            Some(json!(t.replace("{{prompt}}", &r.prompt).replace("{{negative}}", &r.negative).replace("{{model}}", model).replace("{{image}}", image)))
-        }
+        t if t.contains("{{") => Some(json!(
+            t.replace("{{prompt}}", &r.prompt)
+                .replace("{{negative}}", &r.negative)
+                .replace("{{model}}", model)
+                .replace("{{image}}", image)
+                .replace("{{mask}}", mask)
+        )),
         _ => None,
     });
 }
@@ -127,6 +138,10 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
         Some(img) => Some(upload(p, img)?),
         None => None,
     };
+    let mask = match r.mask()? {
+        Some(m) => Some(upload(p, &m.white)?),
+        None => None,
+    };
     let workflow = if p.workflow.trim().is_empty() {
         if r.kind == Kind::Video {
             return Err(GenError::Config(format!(
@@ -135,7 +150,7 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
             )));
         }
         let checkpoint = if model.is_empty() { first_checkpoint(p)? } else { model.clone() };
-        builtin_workflow(r, &checkpoint, image.as_deref())
+        builtin_workflow(r, &checkpoint, image.as_deref(), mask.as_deref())
     } else {
         let text = std::fs::read_to_string(p.workflow.trim())
             .map_err(|e| GenError::Config(format!("{}: can't read the workflow {}: {e}", p.name, p.workflow.trim())))?;
@@ -144,7 +159,10 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
         if image.is_some() && !text.contains("{{image}}") {
             return Err(GenError::Config(format!("{}: your workflow has no {{{{image}}}} for the starting picture; put it in its Load Image node", p.name)));
         }
-        fill_workflow(&mut v, r, &model, image.as_deref());
+        if mask.is_some() && !text.contains("{{mask}}") {
+            return Err(GenError::Config(format!("{}: your workflow has no {{{{mask}}}} for the mask; put it in a Load Image (as Mask) node", p.name)));
+        }
+        fill_workflow(&mut v, r, &model, image.as_deref(), mask.as_deref());
         v
     };
     let queued = post_json(&p.name, &format!("{}/prompt", p.base()), &[], &json!({ "prompt": workflow }))?;

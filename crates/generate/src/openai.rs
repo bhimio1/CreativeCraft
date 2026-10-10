@@ -45,6 +45,11 @@ pub(crate) fn image(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> 
         }
         let take = if p.kind == ProviderKind::Openai { inputs.len() } else { 1 };
         parts.extend(inputs.iter().take(take).map(|i| Part::File(field, i)));
+        // the area to change is transparent in OpenAI's masks
+        let mask = r.mask()?;
+        if let Some(m) = &mask {
+            parts.push(Part::File("mask", &m.alpha));
+        }
         post_multipart(&p.name, &format!("{}/images/edits", p.base()), &auth(p)?, &parts)?
     };
     let items = resp.get("data").and_then(Value::as_array).cloned().unwrap_or_default();

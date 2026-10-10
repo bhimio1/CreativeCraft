@@ -28,18 +28,21 @@ pub(crate) fn common_input(p: &Provider, r: &Request, count_field: &str) -> Resu
 const IMAGE_INPUTS: &[&str] =
     &["image_input", "input_images", "input_image", "image", "start_image", "first_frame_image", "init_image", "image_url", "image_urls"];
 
+/// Names models give their mask input.
+const MASK_INPUTS: &[&str] = &["mask", "mask_image", "mask_input", "mask_url"];
+
 /// Where a model takes starting pictures: the first of [`IMAGE_INPUTS`] its input schema has, and
-/// whether it takes a list. Unknown schema: `image`, one picture.
-fn image_input(p: &Provider, owner: &str, name: &str, auth: &[(&str, String)]) -> (String, bool) {
+/// whether it takes a list (unknown schema: `image`, one picture); and its mask input, if any
+/// (unknown schema: `mask`).
+fn image_input(p: &Provider, owner: &str, name: &str, auth: &[(&str, String)]) -> ((String, bool), Option<String>) {
     let schema = get_json(&p.name, &format!("{}/models/{owner}/{name}", p.base()), auth).ok();
     let props = schema.as_ref().and_then(|s| s.pointer("/latest_version/openapi_schema/components/schemas/Input/properties")).and_then(Value::as_object);
-    if let Some(props) = props
-        && let Some(key) = IMAGE_INPUTS.iter().find(|k| props.contains_key(**k))
-    {
+    let Some(props) = props else { return (("image".into(), false), Some("mask".into())) };
+    let image = IMAGE_INPUTS.iter().find(|k| props.contains_key(**k)).map_or(("image".to_string(), false), |key| {
         let list = props[*key].get("type").and_then(Value::as_str) == Some("array");
-        return ((*key).to_string(), list);
-    }
-    ("image".into(), false)
+        ((*key).to_string(), list)
+    });
+    (image, MASK_INPUTS.iter().find(|k| props.contains_key(**k)).map(|k| (*k).to_string()))
 }
 
 /// Starting pictures as data URIs under `key` (a list or the first one).
@@ -92,9 +95,16 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
     let url = format!("{}/models/{owner}/{name}/predictions", p.base());
     let (mut full, mut minimal) = (common_input(p, r, "num_outputs")?, minimal_input(p, r)?);
     if !r.images.is_empty() {
-        let (key, list) = image_input(p, owner, name, &auth);
+        let ((key, list), mask_key) = image_input(p, owner, name, &auth);
         add_images(&mut full, r, &key, list)?;
         add_images(&mut minimal, r, &key, list)?;
+        if let Some(mask) = r.mask()? {
+            let mask_key = mask_key
+                .ok_or_else(|| GenError::Config(format!("{model} doesn't take a mask; choose an inpainting model (e.g. black-forest-labs/flux-fill-pro)")))?;
+            for m in [&mut full, &mut minimal] {
+                m.insert(mask_key.clone(), json!(mask.white.data_uri()));
+            }
+        }
         // the picture sets the shape
         full.remove("aspect_ratio");
     }

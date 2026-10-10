@@ -983,6 +983,7 @@ name = "creativecraft-generate"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
+ "image",
  "log",
  "serde",
  "serde_json",

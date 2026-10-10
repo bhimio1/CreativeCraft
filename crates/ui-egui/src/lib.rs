@@ -10,6 +10,7 @@ mod assets;
 mod assistant;
 mod generate;
 mod marketplace;
+mod mask;
 mod projects;
 mod settings;
 mod sources;
@@ -167,6 +168,10 @@ impl CreativeCraftApp {
                 for _ in 0..p["assistant:".len()..].parse::<usize>().unwrap_or(1) {
                     app.assistant.debug_add_tab(app.draft.agent.backend);
                 }
+            }
+            Ok(p) if p.starts_with("generate-mask:") => {
+                let picture = std::path::PathBuf::from(&p["generate-mask:".len()..]);
+                app.debug_mask(&picture);
             }
             Ok(p) if p.starts_with("generation:") => {
                 app.page = Page::Settings;

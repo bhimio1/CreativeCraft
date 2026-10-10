@@ -28,7 +28,8 @@
 - [x] AI image and video generation: local (ComfyUI, Stable Diffusion WebUI), bring-your-own-key (OpenAI, Google, xAI, Replicate, fal, Together) and OpenAI-compatible endpoints; Generate page, hub tools, CLI
 - [x] AI generation: start from a picture (edit, restyle, image-to-video) on every service; stop a running job (and the job on services that allow it)
 - [x] AI generation: video stills in the gallery through the user's own ffmpeg, when installed; Stock → "Generate from this"
-- [ ] AI generation: masks for inpainting; a built-in frame reader for video stills without ffmpeg
+- [x] AI generation: inpainting with a painted mask (OpenAI, Replicate, fal, ComfyUI, Stable Diffusion WebUI)
+- [ ] AI generation: a built-in frame reader for video stills without ffmpeg
 - [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
 - [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)

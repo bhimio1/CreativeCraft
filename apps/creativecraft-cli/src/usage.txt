@@ -22,6 +22,7 @@ USAGE
                      [--provider id] [--model m] [--aspect square|landscape|portrait] [--count 1-4]
                      [--negative text] [--seed n]
                      [--image file]… start from a picture: edit or restyle it [--strength 1-100]
+                     [--mask file]  change only the white part of the first picture
   creativecraft-cli generate video <prompt>   a short video [--seconds n] (and the options above;
                                            --image is the first frame)
   creativecraft-cli generate providers     your AI generation services

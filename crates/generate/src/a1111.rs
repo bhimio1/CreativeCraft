@@ -19,6 +19,12 @@ pub(crate) fn txt2img(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError
     if !inputs.is_empty() {
         body["init_images"] = json!(inputs.iter().map(crate::InputImage::base64).collect::<Vec<_>>());
         body["denoising_strength"] = json!(r.denoise());
+        if let Some(mask) = r.mask()? {
+            // inpaint the white part, starting from what's there
+            body["mask"] = json!(mask.white.base64());
+            body["inpainting_fill"] = json!(1);
+            body["mask_blur"] = json!(4);
+        }
     }
     let endpoint = if inputs.is_empty() { "txt2img" } else { "img2img" };
     if let Value::Object(m) = &mut body {

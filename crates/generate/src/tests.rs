@@ -113,7 +113,26 @@ fn req(kind: Kind) -> Request {
         seed: None,
         images: Vec::new(),
         strength: None,
+        mask: None,
     }
+}
+
+/// A real PNG of `w`×`h`, where `paint(x, y)` pixels are white and the rest black.
+fn real_png(w: u32, h: u32, paint: impl Fn(u32, u32) -> bool) -> Vec<u8> {
+    let img = image::GrayImage::from_fn(w, h, |x, y| image::Luma([if paint(x, y) { 255 } else { 0 }]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageLuma8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+/// A request to change the left half of a real 8×8 picture.
+fn inpaint(tag: &str) -> Request {
+    let dir = std::env::temp_dir().join(format!("cc-gen-mask-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pic.png"), real_png(8, 8, |_, _| false)).unwrap();
+    // painted at a different size: it's scaled to the picture
+    std::fs::write(dir.join("mask.png"), real_png(16, 16, |x, _| x < 8)).unwrap();
+    Request { images: vec![dir.join("pic.png")], mask: Some(dir.join("mask.png")), count: 1, ..req(Kind::Image) }
 }
 
 /// A request starting from a picture on disk.
@@ -406,7 +425,7 @@ fn comfyui_placeholders() {
         "1": { "inputs": { "text": "photo of {{prompt}}, best quality", "neg": "{{negative}}", "seed": "{{seed}}", "w": "{{width}}", "n": "{{count}}", "ckpt": "{{model}}" } }
     });
     let r = Request { negative: "blurry".into(), seed: Some(42), count: 1, ..req(Kind::Image) };
-    comfy::fill_workflow(&mut wf, &r, "flux.safetensors", None);
+    comfy::fill_workflow(&mut wf, &r, "flux.safetensors", None, None);
     let i = &wf["1"]["inputs"];
     assert_eq!(i["text"], "photo of a lighthouse, best quality");
     assert_eq!(i["neg"], "blurry");
@@ -496,4 +515,77 @@ fn starting_pictures_are_checked() {
     std::fs::write(&text, "hello").unwrap();
     r.images = vec![text];
     assert!(r.inputs().unwrap_err().to_string().contains("isn't a PNG"));
+}
+
+#[test]
+fn masks_come_in_both_forms_at_the_pictures_size() {
+    let m = inpaint("forms").mask().unwrap().unwrap();
+    let white = image::load_from_memory(&m.white.bytes).unwrap().to_luma8();
+    assert_eq!(white.dimensions(), (8, 8));
+    assert_eq!(white.get_pixel(1, 4).0[0], 255, "left half: change");
+    assert_eq!(white.get_pixel(6, 4).0[0], 0, "right half: keep");
+    let alpha = image::load_from_memory(&m.alpha.bytes).unwrap().to_rgba8();
+    assert_eq!(alpha.get_pixel(1, 4).0[3], 0, "OpenAI: transparent where it changes");
+    assert_eq!(alpha.get_pixel(6, 4).0[3], 255);
+    // an empty mask, or one without a picture, is refused
+    let mut r = inpaint("empty");
+    std::fs::write(r.mask.as_ref().unwrap(), real_png(4, 4, |_, _| false)).unwrap();
+    assert!(r.mask().unwrap_err().to_string().contains("empty"));
+    r.images.clear();
+    assert!(r.mask().unwrap_err().to_string().contains("starting picture"));
+}
+
+#[test]
+fn masks_reach_each_service_its_way() {
+    let b64 = png_b64();
+    let (base, seen) = serve(Box::new(move |r, _| match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/images/edits") => json(serde_json::json!({ "data": [{ "b64_json": b64 }] })),
+        ("GET", "/models/owner/fill") => {
+            json(serde_json::json!({ "latest_version": { "openapi_schema": { "components": { "schemas": { "Input": { "properties": {
+            "image": { "type": "string" }, "mask": { "type": "string" } } } } } } } }))
+        }
+        ("GET", "/models/owner/nomask") => {
+            json(serde_json::json!({ "latest_version": { "openapi_schema": { "components": { "schemas": { "Input": { "properties": {
+            "image": { "type": "string" } } } } } } } }))
+        }
+        ("POST", "/models/owner/fill/predictions") => {
+            json(serde_json::json!({ "id": "f1", "status": "succeeded", "output": format!("data:image/png;base64,{b64}") }))
+        }
+        ("POST", "/upload/image") => {
+            let name = if r.body.contains("filename=\"mask.png\"") { "mask.png" } else { "pic.png" };
+            json(serde_json::json!({ "name": name, "subfolder": "", "type": "input" }))
+        }
+        ("POST", "/prompt") => json(serde_json::json!({ "prompt_id": "m1" })),
+        ("GET", "/history/m1") => json(
+            serde_json::json!({ "m1": { "status": { "completed": true }, "outputs": { "9": { "images": [{ "filename": "o.png", "subfolder": "", "type": "output" }] } } } }),
+        ),
+        ("POST", "/sdapi/v1/img2img") => json(serde_json::json!({ "images": [b64] })),
+        _ => (200, PNG.to_vec()),
+    }));
+    let run = |kind: ProviderKind, model: &str| {
+        let mut p = provider(kind, &base);
+        p.image_model = model.into();
+        generate(&p, &inpaint(&model.replace('/', "-")), &mut quiet())
+    };
+    run(ProviderKind::Openai, "gpt-image").unwrap();
+    run(ProviderKind::Replicate, "owner/fill").unwrap();
+    run(ProviderKind::Comfyui, "sd.safetensors").unwrap();
+    run(ProviderKind::Automatic1111, "dreamshaper").unwrap();
+    assert!(run(ProviderKind::Replicate, "owner/nomask").unwrap_err().to_string().contains("doesn't take a mask"));
+    assert!(run(ProviderKind::Google, "gemini").unwrap_err().to_string().contains("doesn't take a mask"));
+    let mut video = inpaint("video");
+    video.kind = Kind::Video;
+    assert!(generate(&provider(ProviderKind::Fal, &base), &video, &mut quiet()).unwrap_err().to_string().contains("masks are for pictures"));
+
+    let seen = seen.lock().unwrap();
+    let find = |path: &str| seen.iter().find(|s| s.path.starts_with(path)).unwrap().clone();
+    assert!(find("/images/edits").body.contains("name=\"mask\"; filename=\"mask.png\""));
+    assert!(find("/models/owner/fill/predictions").json()["input"]["mask"].as_str().unwrap().starts_with("data:image/png;base64,"));
+    let wf = find("/prompt").json()["prompt"].clone();
+    assert_eq!(wf["13"]["inputs"]["image"], "mask.png");
+    assert_eq!(wf["14"]["class_type"], "SetLatentNoiseMask");
+    assert_eq!(wf["12"]["inputs"]["samples"][0], "14");
+    let a1111 = find("/sdapi/v1/img2img").json();
+    assert!(a1111["mask"].as_str().is_some_and(|m| !m.is_empty()));
+    assert_eq!(a1111["inpainting_fill"], 1);
 }

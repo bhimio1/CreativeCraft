@@ -331,6 +331,7 @@ fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
                 seed: number("--seed")?,
                 images,
                 strength: number("--strength")?.map(|n| n.clamp(1, 100) as u8),
+                mask: value("--mask").map(std::path::PathBuf::from),
             };
             let result = s.execute(Command::Generate { request, provider: value("--provider") }, &mut print_progress);
             eprintln!();

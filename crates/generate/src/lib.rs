@@ -127,6 +127,19 @@ pub struct Request {
     /// diffusion: the denoising strength). Unset: 60.
     #[serde(default)]
     pub strength: Option<u8>,
+    /// Change only part of the (first) starting picture: a picture where white marks what to
+    /// change and black what to keep (inpainting). Services without masks say so.
+    #[serde(default)]
+    pub mask: Option<std::path::PathBuf>,
+}
+
+/// A mask in the two forms services take, at the starting picture's size.
+#[derive(Debug, Clone)]
+pub(crate) struct Mask {
+    /// White = change, black = keep (Replicate, fal, ComfyUI, Stable Diffusion WebUI).
+    pub white: InputImage,
+    /// Transparent = change, opaque = keep (OpenAI's edits).
+    pub alpha: InputImage,
 }
 
 /// A starting picture, read from disk.
@@ -174,6 +187,34 @@ impl Request {
                 Ok(InputImage { bytes, mime, name })
             })
             .collect()
+    }
+
+    /// The mask, read and turned into both forms, sized to the first starting picture.
+    pub(crate) fn mask(&self) -> Result<Option<Mask>, GenError> {
+        let Some(path) = &self.mask else { return Ok(None) };
+        let first = self.images.first().ok_or_else(|| GenError::Config("a mask needs a starting picture to paint on".into()))?;
+        let bad = |e: image::ImageError| GenError::Config(format!("can't read the mask {}: {e}", path.display()));
+        let (w, h) = image::image_dimensions(first).map_err(|e| GenError::Config(format!("can't read the starting picture {}: {e}", first.display())))?;
+        let mut m = image::open(path).map_err(bad)?.to_luma_alpha8();
+        if m.dimensions() != (w, h) {
+            m = image::imageops::resize(&m, w, h, image::imageops::FilterType::Triangle);
+        }
+        // painted = light and opaque
+        let change = |p: &image::LumaA<u8>| p.0[0] >= 128 && p.0[1] >= 128;
+        let white = image::GrayImage::from_fn(w, h, |x, y| image::Luma([if change(m.get_pixel(x, y)) { 255 } else { 0 }]));
+        let alpha = image::RgbaImage::from_fn(w, h, |x, y| image::Rgba([0, 0, 0, if change(m.get_pixel(x, y)) { 0 } else { 255 }]));
+        if white.pixels().all(|p| p.0[0] == 0) {
+            return Err(GenError::Config("the mask is empty: paint over the part to change".into()));
+        }
+        let png = |img: image::DynamicImage| -> Result<Vec<u8>, GenError> {
+            let mut out = std::io::Cursor::new(Vec::new());
+            img.write_to(&mut out, image::ImageFormat::Png).map_err(|e| GenError::Failed(format!("couldn't make the mask: {e}")))?;
+            Ok(out.into_inner())
+        };
+        Ok(Some(Mask {
+            white: InputImage { bytes: png(image::DynamicImage::ImageLuma8(white))?, mime: "image/png", name: "mask.png".into() },
+            alpha: InputImage { bytes: png(image::DynamicImage::ImageRgba8(alpha))?, mime: "image/png", name: "mask.png".into() },
+        }))
     }
 
     /// `strength` as 0.0–1.0.
@@ -401,6 +442,14 @@ fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Ou
     r.count = if r.kind == Kind::Video { 1 } else { r.count.clamp(1, 4) };
     if !r.images.is_empty() && p.kind == ProviderKind::Automatic1111 && r.kind == Kind::Video {
         return Err(GenError::Config(format!("{} doesn't make video", p.name)));
+    }
+    if r.mask.is_some() {
+        if r.kind == Kind::Video {
+            return Err(GenError::Config("masks are for pictures; leave it out for video".into()));
+        }
+        if matches!(p.kind, ProviderKind::Google | ProviderKind::Xai) {
+            return Err(GenError::Config(format!("{} doesn't take a mask: remove it and say in words what to change", p.name)));
+        }
     }
     match (p.kind, r.kind) {
         (ProviderKind::Openai | ProviderKind::OpenaiCompatible | ProviderKind::Xai, Kind::Image) => openai::image(p, &r),

@@ -89,7 +89,8 @@ fn hub_tools() -> Vec<Value> {
             "model": { "type": "string", "description": "Override the service's model; omit for the user's choice" },
             "seed": { "type": "integer", "minimum": 0 },
             "images": { "type": "array", "items": { "type": "string" }, "description": "Pictures in the projects folder to start from (paths relative to it): to edit, restyle or combine them. Omit to make something new." },
-            "strength": { "type": "integer", "minimum": 1, "maximum": 100, "description": "How much to change the starting picture, where the service lets you choose (default 60)" }
+            "strength": { "type": "integer", "minimum": 1, "maximum": 100, "description": "How much to change the starting picture, where the service lets you choose (default 60)" },
+            "mask": { "type": "string", "description": "Change only part of the first picture: a picture in the projects folder, white where to change and black where to keep (OpenAI, Replicate inpainting models, fal, ComfyUI, Stable Diffusion WebUI)" }
         }, "required": ["prompt"] } }),
         json!({ "name": "generate_video", "description": "Make a short video from a text prompt (optionally starting from a picture) with the user's AI generation service and save it in the projects folder under Generated/<date>/. Video costs far more than images on cloud services, which bill the user's own account: only when the user asked for a video. Can take several minutes. Returns the saved path.", "inputSchema": { "type": "object", "properties": {
             "prompt": { "type": "string" },
@@ -262,7 +263,7 @@ impl<B: HubBackend> HubServer<B> {
             "generate_image" | "generate_video" => {
                 let mut request = serde_json::Map::new();
                 request.insert("kind".into(), json!(if name == "generate_image" { "image" } else { "video" }));
-                for k in ["prompt", "negative", "model", "aspect", "count", "seconds", "seed", "images", "strength"] {
+                for k in ["prompt", "negative", "model", "aspect", "count", "seconds", "seed", "images", "strength", "mask"] {
                     if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
                         request.insert(k.into(), v.clone());
                     }

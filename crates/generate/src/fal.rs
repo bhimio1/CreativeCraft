@@ -17,6 +17,9 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
         for m in [&mut full, &mut minimal] {
             add_images(m, r, "image_url", false)?;
             add_images(m, r, "image_urls", true)?;
+            if let Some(mask) = r.mask()? {
+                m.insert("mask_url".into(), serde_json::json!(mask.white.data_uri()));
+            }
             m.remove("prompt_strength");
             if r.strength.is_some() {
                 m.entry("strength").or_insert(serde_json::json!(r.denoise()));
