@@ -30,7 +30,7 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 key_url = "https://aistudio.google.com/apikey"
 image_model = "gemini-3.1-flash-image"
 video_model = "veo-3.1-generate-preview"
-note = "Gemini image models (Nano Banana) and Veo video."
+note = "Gemini image models (Nano Banana; gemini-nano-banana-2.1 is the newest) and Veo 3.1 video (also veo-3.1-fast-generate-preview, veo-3.1-lite-generate-preview)."
 
 [[preset]]
 id = "xai"
@@ -49,7 +49,7 @@ kind = "replicate"
 base_url = "https://api.replicate.com/v1"
 key_url = "https://replicate.com/account/api-tokens"
 image_model = "black-forest-labs/flux-1.1-pro"
-video_model = "google/veo-3-fast"
+video_model = "google/veo-3.1-fast"
 note = "Hundreds of models from one account: FLUX, Ideogram, Recraft, Seedream, Veo, Kling, MiniMax, Wan and more. Use the model's owner/name."
 
 [[preset]]
