@@ -67,3 +67,8 @@ fails on any formatting difference and stops before building.
    test-builds the PKGBUILD against the published release, and pushes it to the AUR when the
    `AUR_SSH_PRIVATE_KEY` secret is set (through `.github/workflows/aur-publish.yml`; run that
    workflow by hand with a tag to retry an AUR publish without rebuilding).
+4. Windows gets an `.msi` (`packaging/windows/creativecraft.wxs`, WiX 5) and macOS a `.dmg`; CI
+   installs, runs and uninstalls both before anything is published. To check packaging changes
+   without releasing, run **Actions → Release → Run workflow** with an existing tag and
+   **publish** unticked: everything is built and tested, nothing is published. Never change the
+   MSI's `UpgradeCode`.
