@@ -207,6 +207,25 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/deckcraft"
 opens = ["deckcraft", "pptx"]
 
+# ───────────────────────── Community apps built like the Craft apps (MIT OR Apache-2.0) ─────────────────────────
+# Not part of the official Craft family, but built the same way (pure Rust, the same release layout,
+# `<app>-cli mcp`), so the hub installs, updates and drives them like Craft apps.
+
+[[app]]
+id = "solvecraft"
+name = "SolveCraft"
+category = "3D CAD"
+summary = "Parametric 3D CAD: constrained sketches, extrude and revolve, fillets, a timeline that rebuilds when a parameter changes, STEP export."
+kind = "release"
+repo = "bherbruck/solvecraft"
+gui = "solvecraft"
+cli = "solvecraft-cli"
+mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/bherbruck/solvecraft"
+opens = ["solvecraft", "step", "stp", "iges", "igs", "stl", "3mf"]
+
 # ───────────────────────── Other open-source apps (detected, not bundled) ─────────────────────────
 
 [[app]]
