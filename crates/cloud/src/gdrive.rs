@@ -198,7 +198,7 @@ impl CloudStore for GoogleDrive {
             if self.ids.insert(path.clone(), f.id).is_some() {
                 log::warn!("two Drive files claim {path}; using the last one listed");
             }
-            out.push(RemoteFile { path, md5, size: f.size.and_then(|s| s.parse().ok()).unwrap_or(0) });
+            out.push(RemoteFile { path, fingerprint: md5.clone(), md5: Some(md5), size: f.size.and_then(|s| s.parse().ok()).unwrap_or(0) });
         }
         Ok(out)
     }
@@ -219,7 +219,7 @@ impl CloudStore for GoogleDrive {
         Ok(())
     }
 
-    fn upload(&mut self, path: &str, src: &Path) -> Result<(), CloudError> {
+    fn upload(&mut self, path: &str, src: &Path) -> Result<Option<String>, CloudError> {
         let len = std::fs::metadata(src)?.len().to_string();
         let auth = self.bearer()?;
         let session = match self.ids.get(path).cloned() {
@@ -249,7 +249,7 @@ impl CloudStore for GoogleDrive {
         let url = session.header("Location").map(str::to_string).ok_or_else(|| CloudError::Net("Drive gave no upload session".into()))?;
         let f = self.put_content(&url, src)?;
         self.ids.insert(path.to_string(), f.id);
-        Ok(())
+        Ok(None)
     }
 
     fn trash(&mut self, path: &str) -> Result<(), CloudError> {

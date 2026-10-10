@@ -9,6 +9,7 @@
 //! creativecraft-cli sync --preview         what a sync would do, changing nothing
 //! creativecraft-cli login | logout         Google Drive sign-in
 //! creativecraft-cli projects [--json]     recent files in the projects folder
+//! creativecraft-cli plugins [install|remove|enable|disable <id> | refresh]   Marketplace plugins
 //! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
 //! creativecraft-cli chat --new              start a fresh chat
@@ -18,6 +19,17 @@
 //!
 //! In `mcp` mode stdout carries protocol messages only; logs go to stderr.
 #![forbid(unsafe_code)]
+
+/// `println!` that ends the program quietly when stdout has gone away (`creativecraft-cli list | head`)
+/// instead of panicking.
+macro_rules! out {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        if writeln!(std::io::stdout(), $($t)*).is_err() {
+            std::process::exit(0);
+        }
+    }};
+}
 
 use creativecraft_engine::{Command, EngineError, Event, Session};
 use creativecraft_install::{Progress, Status};
@@ -39,18 +51,18 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<(), EngineError> {
     let cmd = args.first().map(String::as_str).unwrap_or("help");
     if matches!(cmd, "help" | "-h" | "--help") {
-        println!("{}", include_str!("usage.txt"));
+        out!("{}", include_str!("usage.txt"));
         return Ok(());
     }
     if matches!(cmd, "version" | "-V" | "--version") {
-        println!("creativecraft-cli {}", env!("CARGO_PKG_VERSION"));
+        out!("creativecraft-cli {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     let mut s = Session::open()?;
     let rest = &args[1..];
     match cmd {
         "list" if rest.iter().any(|a| a == "--json") => {
-            println!("{}", serde_json::to_string_pretty(&s.apps_json()).unwrap_or_default());
+            out!("{}", serde_json::to_string_pretty(&s.apps_json()).unwrap_or_default());
         }
         "list" => {
             for a in &s.catalog.apps {
@@ -59,7 +71,7 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                     Status::Installed { version } => version,
                     Status::Detected { path } => format!("found at {}", path.display()),
                 };
-                println!("{:<12} {:<14} {:<12} {}", a.id, a.name, a.category, status);
+                out!("{:<12} {:<14} {:<12} {}", a.id, a.name, a.category, status);
             }
         }
         "install" | "update" if rest.iter().any(|a| matches!(a.as_str(), "--fork" | "--git" | "--release")) => {
@@ -87,7 +99,7 @@ fn run(args: &[String]) -> Result<(), EngineError> {
             match result {
                 Ok(msg) => {
                     s.save_settings()?;
-                    println!("{msg}");
+                    out!("{msg}");
                 }
                 Err(e) => {
                     s.settings.app_sources = previous;
@@ -100,27 +112,28 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                 let c = if cmd == "install" || cmd == "update" { Command::Install(id.clone()) } else { Command::Uninstall(id.clone()) };
                 let msg = s.execute(c, &mut print_progress)?;
                 eprintln!();
-                println!("{msg}");
+                out!("{msg}");
             }
         }
         "open" | "launch" => {
             let id = rest.first().ok_or_else(|| EngineError::UnknownApp(String::new()))?;
             let files = rest[1..].iter().map(Into::into).collect();
-            println!("{}", s.execute(Command::Launch(id.clone(), files), &mut |_| {})?);
+            out!("{}", s.execute(Command::Launch(id.clone(), files), &mut |_| {})?);
         }
+        "sync" if rest.iter().any(|a| a == "--test") => out!("{}", s.execute(Command::TestCloud, &mut |_| {})?),
         "sync" if rest.iter().any(|a| a == "--preview") => {
             let plan = s.preview_sync()?;
             if plan.is_empty() {
-                println!("Everything is up to date");
+                out!("Everything is up to date");
             }
             for a in plan {
-                println!("{a:?}");
+                out!("{a:?}");
             }
         }
-        "sync" => println!("{}", s.execute(Command::Sync, &mut print_progress)?),
+        "sync" => out!("{}", s.execute(Command::Sync, &mut print_progress)?),
         "chat" if rest.iter().any(|a| a == "--new") => {
             creativecraft_engine::agent::Conversation::default().save(&s.chat_file())?;
-            println!("Started a new chat");
+            out!("Started a new chat");
         }
         "chat" => chat(&s, &rest.join(" "))?,
         "projects" => {
@@ -133,22 +146,52 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                         serde_json::json!({ "path": f.path, "app": f.app, "modified": modified, "size": f.size })
                     })
                     .collect();
-                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                out!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
             } else {
                 for f in &files {
-                    println!("{:<12} {}", f.app.as_deref().unwrap_or("-"), f.path.display());
+                    out!("{:<12} {}", f.app.as_deref().unwrap_or("-"), f.path.display());
                 }
+            }
+        }
+        "plugins" | "plugin" => {
+            let id = || rest.get(1).cloned().ok_or_else(|| EngineError::Plugin("which plugin? (see `creativecraft-cli plugins`)".into()));
+            match rest.first().map(String::as_str) {
+                None | Some("list") => {
+                    for p in &s.marketplace.plugins {
+                        let state = match s.settings.plugins.get(&p.id) {
+                            Some(st) if st.enabled => "installed".to_string(),
+                            Some(_) => "turned off".to_string(),
+                            None => match Session::missing_requirements(p).first() {
+                                Some((name, _)) => format!("needs {name}"),
+                                None => "-".to_string(),
+                            },
+                        };
+                        out!("{:<14} {:<16} {:<12} {:<12} {}", p.id, p.name, p.category, state, p.homepage);
+                    }
+                }
+                Some("install") => {
+                    let p = s.plugin(&id()?)?;
+                    for step in &p.setup {
+                        eprintln!("{}: runs `{} {}`", step.label, step.command, step.args.join(" "));
+                    }
+                    out!("{}", s.execute(Command::InstallPlugin(p.id), &mut |_| {})?);
+                }
+                Some("remove") => out!("{}", s.execute(Command::RemovePlugin(id()?), &mut |_| {})?),
+                Some("enable") => out!("{}", s.execute(Command::SetPluginEnabled(id()?, true), &mut |_| {})?),
+                Some("disable") => out!("{}", s.execute(Command::SetPluginEnabled(id()?, false), &mut |_| {})?),
+                Some("refresh") => out!("{}", s.execute(Command::RefreshMarketplace, &mut |_| {})?),
+                Some(other) => return Err(EngineError::Plugin(format!("unknown plugins command `{other}`"))),
             }
         }
         "bug" | "report-bug" => {
             // print the address too, for terminals without a browser
             let id = rest.first().cloned();
-            println!("{}", s.bug_report_url(id.as_deref())?);
-            println!("{}", s.execute(Command::ReportBug(id), &mut |_| {})?);
+            out!("{}", s.bug_report_url(id.as_deref())?);
+            out!("{}", s.execute(Command::ReportBug(id), &mut |_| {})?);
         }
-        "agent-setup" => println!("{}", s.execute(Command::SetupAgent, &mut |_| {})?),
-        "login" => println!("{}", s.execute(Command::SignInGoogle, &mut |_| {})?),
-        "logout" => println!("{}", s.execute(Command::SignOutGoogle, &mut |_| {})?),
+        "agent-setup" => out!("{}", s.execute(Command::SetupAgent, &mut |_| {})?),
+        "login" => out!("{}", s.execute(Command::SignInGoogle, &mut |_| {})?),
+        "logout" => out!("{}", s.execute(Command::SignOutGoogle, &mut |_| {})?),
         "mcp" => {
             let stdin = std::io::stdin().lock();
             let stdout = std::io::stdout().lock();
@@ -157,7 +200,7 @@ fn run(args: &[String]) -> Result<(), EngineError> {
         }
         other => {
             eprintln!("unknown command `{other}`\n");
-            println!("{}", include_str!("usage.txt"));
+            out!("{}", include_str!("usage.txt"));
         }
     }
     Ok(())
@@ -193,7 +236,7 @@ fn chat(s: &Session, message: &str) -> Result<(), EngineError> {
             break;
         }
     }
-    println!();
+    out!();
     convo.save(&file)?;
     Ok(())
 }

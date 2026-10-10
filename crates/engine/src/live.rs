@@ -57,6 +57,9 @@ impl Session {
                 .stderr(std::process::Stdio::inherit())
                 .spawn()?);
         }
+        if let Some(plugin) = self.spawn_plugin(id) {
+            return plugin;
+        }
         let app = self.app(id)?;
         std::fs::create_dir_all(&self.settings.projects_dir)?;
         let projects = self.settings.projects_dir.display().to_string();

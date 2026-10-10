@@ -1,0 +1,58 @@
+# CreativeCraft plugin index.
+#
+# A plugin gives agents tools for more apps: it is an MCP server the hub starts when an agent needs
+# it and re-exports as `<plugin id>__<tool>`, like the Craft apps' own servers. CreativeCraft hosts
+# none of them: `run` starts the publisher's package from its own registry (PyPI through `uvx`, npm
+# through `npx`, …) on the user's machine, and only after the user installs the plugin.
+#
+#   id        lowercase letters, digits and '-' (it namespaces the tools)
+#   for_app   the catalog app it works with, if any (its icon is shown)
+#   run       the command that starts the MCP server on stdio
+#   requires  programs that must be on the user's PATH first, with where to get them
+#   setup     one-time steps run when the user installs it (shown to them first)
+#   notes     what the user still has to do themselves
+#
+# The hub fetches the newest copy of this file from the CreativeCraft repository ("Check for new
+# plugins"), so listings can be added without an app update. Bump `version` when you change it.
+
+version = 1
+
+[[plugin]]
+id = "blender-mcp"
+name = "Blender MCP"
+for_app = "blender"
+category = "3D"
+summary = "Lets agents model, light, texture and render in Blender: create and edit objects, materials and scenes, and run Blender Python."
+author = "ahujasid"
+license = "MIT"
+homepage = "https://github.com/ahujasid/mcp-for-blender"
+run = { command = "uvx", args = ["mcp-for-blender"] }
+requires = [{ program = "uvx", name = "uv", url = "https://docs.astral.sh/uv/getting-started/installation/" }]
+setup = [{ label = "Install and enable its Blender add-on", command = "uvx", args = ["mcp-for-blender", "install-addon"] }]
+notes = "Open Blender before asking an agent to use it. The add-on starts its server with Blender; if it doesn't, press N in the 3D view, open the MCP for Blender tab and click Start MCP Server."
+
+[[plugin]]
+id = "godot-mcp"
+name = "Godot MCP"
+for_app = "godot"
+category = "Interactive"
+summary = "Lets agents work with Godot projects: launch the editor, run a project and read its output, create scenes and add nodes."
+author = "Coding-Solo"
+license = "MIT"
+homepage = "https://github.com/Coding-Solo/godot-mcp"
+run = { command = "npx", args = ["-y", "@coding-solo/godot-mcp"] }
+requires = [{ program = "npx", name = "Node.js", url = "https://nodejs.org/" }]
+notes = "It finds Godot on your PATH. If it can't, set GODOT_PATH to the Godot executable before starting CreativeCraft."
+
+[[plugin]]
+id = "inkscape-mcp"
+name = "Inkscape MCP"
+for_app = "inkscape"
+category = "Vector"
+summary = "Lets agents create and edit SVG drawings with Inkscape: shapes, paths, text, styles and exports."
+author = "aravindev"
+license = "MIT"
+homepage = "https://github.com/aravindev/inkscape_mcp"
+run = { command = "uvx", args = ["inkscape_mcp"] }
+requires = [{ program = "uvx", name = "uv", url = "https://docs.astral.sh/uv/getting-started/installation/" }]
+notes = "Needs Inkscape installed."

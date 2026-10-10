@@ -75,6 +75,11 @@ pub struct CreativeCraftApp {
     /// External apps whose installed icon has been looked for.
     icons_tried: std::collections::HashSet<String>,
     source_dialog: Option<sources::SourceDraft>,
+    /// The user's rclone remotes, looked up when the rclone settings are shown.
+    cloud_remotes: Option<Vec<String>>,
+    /// The Marketplace's plugin list, copied out of the session.
+    plugins: Vec<creativecraft_engine::Plugin>,
+    marketplace: marketplace::MarketplaceState,
     sync_progress: Option<f32>,
     /// Last result line, shown briefly in the top bar.
     last: Option<(bool, String, f64)>,
@@ -117,6 +122,9 @@ impl CreativeCraftApp {
             build_log: Vec::new(),
             icons_tried: Default::default(),
             source_dialog: None,
+            cloud_remotes: None,
+            plugins: Vec::new(),
+            marketplace: marketplace::MarketplaceState::default(),
             sync_progress: None,
             last: None,
             log: Vec::new(),
@@ -165,6 +173,11 @@ impl CreativeCraftApp {
     /// Re-read app status from the session (cheap; skipped while a job holds the session).
     fn refresh(&mut self) {
         let Ok(s) = self.session.try_lock() else { return };
+        // plugin commands change the session's settings; keep the draft in step, so saving other
+        // settings never undoes an install
+        self.plugins = s.marketplace.plugins.clone();
+        self.draft.plugins = s.settings.plugins.clone();
+        self.saved.plugins = s.settings.plugins.clone();
         self.rows = s
             .catalog
             .apps
@@ -391,9 +404,13 @@ impl CreativeCraftApp {
             // search, roughly centred
             ui.add_space((ui.available_width() / 2.0 - 220.0).max(16.0));
             // searches projects on the Projects page, apps everywhere else
-            let hint = if self.page == Page::Projects { "🔍  Search projects" } else { "🔍  Search apps" };
+            let hint = match self.page {
+                Page::Projects => "🔍  Search projects",
+                Page::Marketplace => "🔍  Search plugins",
+                _ => "🔍  Search apps",
+            };
             ui.add(egui::TextEdit::singleline(&mut self.search).hint_text(hint).desired_width(320.0).margin(vec2(10.0, 6.0)));
-            if !self.search.is_empty() && !matches!(self.page, Page::Apps | Page::Projects) {
+            if !self.search.is_empty() && !matches!(self.page, Page::Apps | Page::Projects | Page::Marketplace) {
                 self.page = Page::Apps;
             }
 
@@ -600,10 +617,13 @@ impl CreativeCraftApp {
             ui.horizontal(|ui| {
                 let idle = self.busy.is_none();
                 let (title, detail) = match &self.draft.cloud {
-                    CloudChoice::Off => ("Cloud sync is off", "Choose Google Drive or a synced folder in Settings.".to_string()),
+                    CloudChoice::Off => ("Cloud sync is off", "Choose a cloud service, a NAS or a synced folder in Settings.".to_string()),
                     CloudChoice::Folder { path } => ("Synced folder", path.display().to_string()),
                     CloudChoice::GoogleDrive { .. } if self.signed_in => ("Google Drive", "Signed in".to_string()),
                     CloudChoice::GoogleDrive { .. } => ("Google Drive", "Not signed in".to_string()),
+                    CloudChoice::WebDav { url, .. } => ("WebDAV", url.clone()),
+                    CloudChoice::S3 { endpoint, bucket, prefix, .. } => ("S3 storage", format!("{bucket}/{prefix} at {endpoint}")),
+                    CloudChoice::Rclone { remote, folder } => ("rclone", format!("{}:{folder}", remote.trim_end_matches(':'))),
                 };
                 ui.vertical(|ui| {
                     ui.label(RichText::new("Cloud").size(12.0).color(t.muted));

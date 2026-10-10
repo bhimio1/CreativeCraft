@@ -7,21 +7,31 @@
                               │                         │
 L4  ui-egui ──────────────────┘                         │
                               │                         │
-L3  engine    Session { catalog, installer, settings } + Command registry
+L3  engine    Session { catalog, installer, settings, marketplace } + Command registry
               implements creativecraft_mcp::HubBackend
                  │            │             │
 L2  install         cloud           mcp                        agent
     GitHub releases  CloudStore      Client (stdio JSON-RPC)    agent-CLI backends
     verify/unpack    GoogleDrive     HubServer (aggregates app servers)
-    detect/launch    FolderStore                                parse streams, transcript
+    detect/launch    WebDav, S3                                 parse streams, transcript
+    sources, icons   Rclone, Folder
                      sync executor
                  │            │
-L1  catalog   (apps.toml model)
+L1  catalog   (apps.toml model)      marketplace (plugins.toml model)
 L0  platform (std)        sync-plan (std)
 ```
 
 A crate only depends on lower layers. `mcp` reaches the engine through the `HubBackend` trait so
 L2 never depends on L3.
+
+## Plugins
+
+`marketplace/plugins.toml` (crate `creativecraft-marketplace`) lists MCP-server plugins; the
+engine loads it, or a newer copy fetched from the repository into `<data>/marketplace/`. Installed
+plugins are `settings.plugins` (id → enabled). `InstallPlugin` checks `requires` on the host `PATH`
+and runs `setup` steps through `HostCommand`; `Session::spawn_mcp` starts an enabled plugin's `run`
+command, so the hub exposes it as `<id>__<tool>` like an app. Commands are plain program names
+(validated), never shell lines. See [marketplace.md](marketplace.md).
 
 ## Commands
 
@@ -50,6 +60,15 @@ them inline and prints progress to stderr; the MCP server runs them for the agen
   Uninstalling removes the checkout and build cache too.
 
 ## Sync
+
+Backends (`creativecraft-cloud`): Google Drive, WebDAV, S3 (SigV4 signed here), rclone (an external
+program, like git), and folders. Stores that report no MD5 give a fingerprint (ETag, or size and
+modification time) and `sync.rs` remembers which MD5 each stands for (`remote-hashes.json`); local
+hashes are cached by size, modification and change time (`hash-cache.json`). Downloads land in
+`.creativecraft/incoming/`, are checked, then renamed into place. User ignore rules come from
+`.creativecraftignore` (`sync_plan::IgnoreRules`). See [cloud-sync.md](cloud-sync.md) for the
+user's side.
+
 
 `sync-plan` compares **local**, **remote** and **base** (the state after the last good sync):
 

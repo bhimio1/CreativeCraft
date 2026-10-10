@@ -3,6 +3,7 @@ name = "creativecraft-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "CreativeCraft headless CLI: list/install/update/launch apps, sync projects, and the hub MCP server"
 

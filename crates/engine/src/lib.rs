@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod live;
+mod plugins;
 pub mod projects;
 mod report;
 mod settings;
@@ -13,6 +14,8 @@ mod settings;
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
 pub use creativecraft_install::Source;
+pub use creativecraft_marketplace::{Index as PluginIndex, Plugin};
+pub use plugins::PluginState;
 pub use settings::{Appearance, CloudChoice, CustomMcp, Settings};
 
 use creativecraft_catalog::{AppSpec, Catalog, Kind};
@@ -42,6 +45,8 @@ pub enum EngineError {
     Agent(#[from] creativecraft_agent::AgentError),
     #[error("{0}")]
     Live(String),
+    #[error("{0}")]
+    Plugin(String),
 }
 
 /// Everything the hub can do. Ids (`app.install`, …) are stable: the CLI and docs use them.
@@ -54,6 +59,16 @@ pub enum Command {
     /// Open the issue tracker for an app (`Some(id)`) or for CreativeCraft itself (`None`).
     ReportBug(Option<String>),
     Sync,
+    /// Check that the configured cloud storage can be reached (Settings → Cloud sync → Test).
+    TestCloud,
+    /// Install a Marketplace plugin: check what it needs, run its setup steps, turn it on.
+    InstallPlugin(String),
+    /// Forget an installed plugin.
+    RemovePlugin(String),
+    /// Turn an installed plugin's tools on or off for agents.
+    SetPluginEnabled(String, bool),
+    /// Fetch the newest plugin list from the CreativeCraft repository.
+    RefreshMarketplace,
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -70,6 +85,11 @@ impl Command {
             Command::ReportBug(Some(_)) => "app.report_bug",
             Command::ReportBug(None) => "hub.report_bug",
             Command::Sync => "cloud.sync",
+            Command::TestCloud => "cloud.test",
+            Command::InstallPlugin(_) => "plugin.install",
+            Command::RemovePlugin(_) => "plugin.remove",
+            Command::SetPluginEnabled(..) => "plugin.enable",
+            Command::RefreshMarketplace => "plugin.refresh",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -89,6 +109,8 @@ pub struct Session {
     pub catalog: Catalog,
     pub installer: Installer,
     pub settings: Settings,
+    /// The plugins the Marketplace lists.
+    pub marketplace: creativecraft_marketplace::Index,
 }
 
 impl Session {
@@ -103,7 +125,8 @@ impl Session {
         }
         let installer = Installer::open(dirs.clone())?;
         let settings = Settings::load(&dirs.settings_file());
-        Ok(Session { dirs, catalog, installer, settings })
+        let marketplace = plugins::load_index(&dirs.data().join("marketplace").join("plugins.toml"));
+        Ok(Session { dirs, catalog, installer, settings, marketplace })
     }
 
     pub fn save_settings(&self) -> Result<(), EngineError> {
@@ -156,7 +179,25 @@ impl Session {
                 let client = GoogleClient { client_id: client_id.clone(), client_secret: client_secret.clone() };
                 Ok(Box::new(GoogleDrive::connect(client, self.token_file())?))
             }
+            CloudChoice::WebDav { url, username, password } => Ok(Box::new(creativecraft_cloud::WebDavStore::new(url, username, password)?)),
+            CloudChoice::S3 { endpoint, region, bucket, prefix, access_key, secret_key, path_style } => {
+                Ok(Box::new(creativecraft_cloud::S3Store::new(creativecraft_cloud::S3Config {
+                    endpoint: endpoint.clone(),
+                    region: region.clone(),
+                    bucket: bucket.clone(),
+                    prefix: prefix.clone(),
+                    access_key: access_key.clone(),
+                    secret_key: secret_key.clone(),
+                    path_style: *path_style,
+                })?))
+            }
+            CloudChoice::Rclone { remote, folder } => Ok(Box::new(creativecraft_cloud::RcloneStore::new(remote, folder)?)),
         }
+    }
+
+    /// The remotes in the user's rclone, for the settings menu (empty if rclone isn't installed).
+    pub fn rclone_remotes() -> Vec<String> {
+        creativecraft_cloud::rclone_remotes().unwrap_or_default()
     }
 
     /// Run a command. `events` receives progress; the returned string is a one-line result.
@@ -198,7 +239,23 @@ impl Session {
                 for (path, why) in &report.errors {
                     log::warn!("sync: {path}: {why}");
                 }
-                Ok(report.summary())
+                // say what went wrong, not just how often
+                let mut out = report.summary();
+                for (path, why) in report.errors.iter().take(3) {
+                    out.push_str(&format!("\n  {path}: {why}"));
+                }
+                if report.errors.len() > 3 {
+                    out.push_str(&format!("\n  …and {} more", report.errors.len() - 3));
+                }
+                Ok(out)
+            }
+            Command::InstallPlugin(id) => self.install_plugin(&id),
+            Command::RemovePlugin(id) => self.remove_plugin(&id),
+            Command::SetPluginEnabled(id, on) => self.set_plugin_enabled(&id, on),
+            Command::RefreshMarketplace => self.refresh_marketplace(),
+            Command::TestCloud => {
+                let mut store = self.cloud_store()?;
+                Ok(sync::test_connection(store.as_mut())?)
             }
             Command::SignInGoogle => {
                 let CloudChoice::GoogleDrive { client_id, client_secret } = &self.settings.cloud else {
@@ -268,6 +325,11 @@ impl Session {
                 })
             })
             .collect();
+        for (id, state) in &self.settings.plugins {
+            if let Some(p) = self.marketplace.get(id) {
+                out.push(json!({ "id": id, "name": p.name, "category": "Plugin", "summary": p.summary, "status": if state.enabled { "installed" } else { "turned_off" }, "mcp": state.enabled, "for_app": p.for_app, "installable_by_hub": false }));
+            }
+        }
         for c in &self.settings.custom_mcp {
             out.push(json!({ "id": c.id, "name": c.name, "category": "Custom", "status": "configured", "mcp": true, "installable_by_hub": false }));
         }

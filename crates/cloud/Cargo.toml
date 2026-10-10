@@ -3,6 +3,7 @@ name = "creativecraft-cloud"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "CreativeCraft L2: cloud saves: storage backends (Google Drive, any local/synced folder) and the sync executor"
 
@@ -10,6 +11,7 @@ description = "CreativeCraft L2: cloud saves: storage backends (Google Drive, an
 workspace = true
 
 [dependencies]
+creativecraft-platform = { workspace = true }
 creativecraft-sync-plan = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -851,6 +851,7 @@ name = "creativecraft-cloud"
 version = "0.1.7"
 dependencies = [
  "base64",
+ "creativecraft-platform",
  "creativecraft-sync-plan",
  "getrandom 0.3.4",
  "log",
@@ -871,6 +872,7 @@ dependencies = [
  "creativecraft-catalog",
  "creativecraft-cloud",
  "creativecraft-install",
+ "creativecraft-marketplace",
  "creativecraft-mcp",
  "creativecraft-platform",
  "log",
@@ -897,6 +899,15 @@ dependencies = [
  "thiserror 2.0.21",
  "ureq",
  "zip",
+]
+
+[[package]]
+name = "creativecraft-marketplace"
+version = "0.1.6"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]

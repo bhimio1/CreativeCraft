@@ -16,6 +16,33 @@ pub(crate) enum Section {
     About,
 }
 
+/// Address templates for common WebDAV servers; the user fills in the parts in <…>.
+const WEBDAV_TEMPLATES: &[(&str, &str)] = &[
+    ("Nextcloud", "https://<your server>/remote.php/dav/files/<user name>/CreativeCraft"),
+    ("ownCloud", "https://<your server>/remote.php/webdav/CreativeCraft"),
+    ("Synology NAS (WebDAV Server package)", "https://<nas address>:5006/<shared folder>/CreativeCraft"),
+    ("QNAP, TrueNAS or another NAS", "https://<nas address>/<share>/CreativeCraft"),
+    ("pCloud (US)", "https://webdav.pcloud.com/CreativeCraft"),
+    ("pCloud (EU)", "https://ewebdav.pcloud.com/CreativeCraft"),
+    ("Koofr", "https://app.koofr.net/dav/Koofr/CreativeCraft"),
+    ("Yandex Disk", "https://webdav.yandex.com/CreativeCraft"),
+];
+
+/// (name, endpoint, region, path style) for common S3-compatible services.
+const S3_TEMPLATES: &[(&str, &str, &str, bool)] = &[
+    ("AWS S3", "https://s3.<region>.amazonaws.com", "us-east-1", false),
+    ("Backblaze B2", "https://s3.<region>.backblazeb2.com", "us-west-004", false),
+    ("Cloudflare R2", "https://<account id>.r2.cloudflarestorage.com", "auto", true),
+    ("Wasabi", "https://s3.<region>.wasabisys.com", "us-east-1", false),
+    ("MinIO, Garage or a NAS", "http://<nas address>:9000", "us-east-1", true),
+];
+
+const IGNORE_TEMPLATE: &str = "# Files and folders CreativeCraft won't sync, one pattern per line.\n\
+# *.mov       every .mov file\n\
+# renders/    every folder called renders, with everything inside\n\
+# /exports/   only the exports folder at the top\n\
+# !keep.mov   sync this one after all\n";
+
 const SECTIONS: [(Section, &str, &str); 6] = [
     (Section::General, "General", "Projects folder and this computer"),
     (Section::Appearance, "Appearance", "Theme and start-up"),
@@ -138,29 +165,82 @@ impl CreativeCraftApp {
         enum Kind {
             Off,
             Drive,
+            WebDav,
+            S3,
+            Rclone,
             Folder,
         }
-        let mut kind = match self.draft.cloud {
+        let kind = match self.draft.cloud {
             CloudChoice::Off => Kind::Off,
             CloudChoice::GoogleDrive { .. } => Kind::Drive,
+            CloudChoice::WebDav { .. } => Kind::WebDav,
+            CloudChoice::S3 { .. } => Kind::S3,
+            CloudChoice::Rclone { .. } => Kind::Rclone,
             CloudChoice::Folder { .. } => Kind::Folder,
         };
-        theme::card(ui, |ui| {
-            theme::setting_row(ui, "Sync with", "A synced folder works with any sync app you already use.", |ui| {
-                if theme::segmented(ui, &mut kind, &[(Kind::Off, "Off"), (Kind::Drive, "Google Drive"), (Kind::Folder, "A folder")]) {
-                    self.draft.cloud = match kind {
-                        Kind::Off => CloudChoice::Off,
-                        Kind::Drive => CloudChoice::GoogleDrive { client_id: String::new(), client_secret: String::new() },
-                        Kind::Folder => CloudChoice::Folder { path: Default::default() },
-                    };
+        const CHOICES: [(Kind, &str, &str); 6] = [
+            (Kind::Off, "Off", "Projects stay on this computer"),
+            (Kind::Drive, "Google Drive", "Through Google's API"),
+            (Kind::WebDav, "WebDAV / NAS", "Nextcloud, Synology, QNAP…"),
+            (Kind::S3, "S3 storage", "AWS, B2, R2, Wasabi, MinIO"),
+            (Kind::Rclone, "rclone", "Dropbox, OneDrive, SFTP, SMB…"),
+            (Kind::Folder, "A folder", "Synced folder or NAS share"),
+        ];
+        // one card per kind of storage
+        let width = ui.available_width();
+        let per_row = if width > 640.0 { 3 } else { 2 };
+        let card_w = (width - 12.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        let mut pick = None;
+        for chunk in CHOICES.chunks(per_row) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                for (k, title, sub) in chunk {
+                    let sel = kind == *k;
+                    let (rect, resp) = ui.allocate_exact_size(vec2(card_w, 58.0), egui::Sense::click());
+                    ui.painter().rect_filled(rect, 12.0, if resp.hovered() { t.row_hover } else { t.row });
+                    ui.painter().rect_stroke(
+                        rect,
+                        12.0,
+                        egui::Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.ink } else { t.line }),
+                        egui::StrokeKind::Inside,
+                    );
+                    // text never spills out of its card on narrow windows
+                    let p = ui.painter().with_clip_rect(rect.shrink(6.0));
+                    p.text(rect.left_top() + vec2(14.0, 12.0), egui::Align2::LEFT_TOP, *title, egui::FontId::proportional(14.0), t.ink);
+                    p.text(rect.left_bottom() + vec2(14.0, -12.0), egui::Align2::LEFT_BOTTOM, *sub, egui::FontId::proportional(11.5), t.muted);
+                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !sel {
+                        pick = Some(*k);
+                    }
                 }
             });
-            let signed_in = self.signed_in;
-            let idle = self.busy.is_none();
-            let mut action = None;
-            match &mut self.draft.cloud {
+            ui.add_space(12.0);
+        }
+        if let Some(k) = pick {
+            self.draft.cloud = match k {
+                Kind::Off => CloudChoice::Off,
+                Kind::Drive => CloudChoice::GoogleDrive { client_id: String::new(), client_secret: String::new() },
+                Kind::WebDav => CloudChoice::WebDav { url: String::new(), username: String::new(), password: String::new() },
+                Kind::S3 => CloudChoice::S3 {
+                    endpoint: String::new(),
+                    region: "us-east-1".into(),
+                    bucket: String::new(),
+                    prefix: "CreativeCraft".into(),
+                    access_key: String::new(),
+                    secret_key: String::new(),
+                    path_style: false,
+                },
+                Kind::Rclone => CloudChoice::Rclone { remote: String::new(), folder: "CreativeCraft".into() },
+                Kind::Folder => CloudChoice::Folder { path: Default::default() },
+            };
+            self.cloud_remotes = None;
+        }
+
+        let signed_in = self.signed_in;
+        let idle = self.busy.is_none();
+        let mut action = None;
+        if !matches!(self.draft.cloud, CloudChoice::Off) {
+            theme::card(ui, |ui| match &mut self.draft.cloud {
                 CloudChoice::GoogleDrive { client_id, client_secret } => {
-                    theme::row_divider(ui);
                     theme::setting_row(
                         ui,
                         "Account",
@@ -183,28 +263,159 @@ impl CreativeCraftApp {
                         });
                     });
                 }
-                CloudChoice::Folder { path } => {
-                    theme::row_divider(ui);
-                    let mut p = path.display().to_string();
-                    theme::setting_row(ui, "Folder", "A folder your sync app (Dropbox, OneDrive, Nextcloud…) backs up.", |ui| {
-                        if ui.add(egui::TextEdit::singleline(&mut p).hint_text("e.g. ~/Dropbox/Art").desired_width(260.0)).changed() {
-                            *path = p.clone().into();
-                        }
+                CloudChoice::WebDav { url, username, password } => {
+                    theme::setting_row(ui, "Folder address", "The WebDAV address of the folder to sync into. Pick your server for a template.", |ui| {
+                        ui.vertical(|ui| {
+                            ui.add(egui::TextEdit::singleline(url).hint_text("https://…").desired_width(320.0));
+                            ui.menu_button(RichText::new("Templates").size(12.0), |ui| {
+                                for (name, template) in WEBDAV_TEMPLATES {
+                                    if ui.button(*name).on_hover_text(*template).clicked() {
+                                        *url = template.to_string();
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
                     });
+                    theme::row_divider(ui);
+                    theme::setting_row(ui, "Sign-in", "Use an app password where your server offers one (Nextcloud: Settings → Security).", |ui| {
+                        ui.vertical(|ui| {
+                            ui.add(egui::TextEdit::singleline(username).hint_text("User name").desired_width(220.0));
+                            ui.add(egui::TextEdit::singleline(password).hint_text("Password").password(true).desired_width(220.0));
+                        });
+                    });
+                    if url.starts_with("http://") {
+                        ui.label(RichText::new("Plain http:// isn't encrypted: use it only for a server on your own network.").size(12.0).color(t.danger));
+                    }
+                }
+                CloudChoice::S3 { endpoint, region, bucket, prefix, access_key, secret_key, path_style } => {
+                    theme::setting_row(ui, "Service", "The endpoint and region of your provider. Pick it for a template.", |ui| {
+                        ui.vertical(|ui| {
+                            ui.add(egui::TextEdit::singleline(endpoint).hint_text("https://s3.eu-west-1.amazonaws.com").desired_width(320.0));
+                            ui.horizontal(|ui| {
+                                ui.add(egui::TextEdit::singleline(region).hint_text("region").desired_width(140.0));
+                                ui.menu_button(RichText::new("Templates").size(12.0), |ui| {
+                                    for (name, ep, rg, ps) in S3_TEMPLATES {
+                                        if ui.button(*name).on_hover_text(*ep).clicked() {
+                                            *endpoint = ep.to_string();
+                                            *region = rg.to_string();
+                                            *path_style = *ps;
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    });
+                    theme::row_divider(ui);
+                    theme::setting_row(ui, "Bucket and folder", "Files go under this folder in the bucket.", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(bucket).hint_text("bucket").desired_width(150.0));
+                            ui.label(RichText::new("/").color(t.muted));
+                            ui.add(egui::TextEdit::singleline(prefix).hint_text("folder").desired_width(150.0));
+                        });
+                    });
+                    theme::row_divider(ui);
+                    theme::setting_row(ui, "Access key", "A key limited to this bucket is safest. The secret is stored only on this computer.", |ui| {
+                        ui.vertical(|ui| {
+                            ui.add(egui::TextEdit::singleline(access_key).hint_text("Access key ID").desired_width(260.0));
+                            ui.add(egui::TextEdit::singleline(secret_key).hint_text("Secret access key").password(true).desired_width(260.0));
+                        });
+                    });
+                    theme::row_divider(ui);
+                    theme::setting_row(ui, "Path-style addresses", "Most self-hosted servers (MinIO, Garage, NAS) need this on.", |ui| {
+                        theme::toggle(ui, path_style);
+                    });
+                    if endpoint.starts_with("http://") {
+                        ui.label(RichText::new("Plain http:// isn't encrypted: use it only for a server on your own network.").size(12.0).color(t.danger));
+                    }
+                }
+                CloudChoice::Rclone { remote, folder } => {
+                    let remotes = self.cloud_remotes.get_or_insert_with(creativecraft_engine::Session::rclone_remotes).clone();
+                    if remotes.is_empty() {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new("rclone connects to Dropbox, OneDrive, Box, pCloud, Mega, Proton Drive, SFTP and SMB shares, and many more. It keeps those accounts itself; CreativeCraft only uses it.").size(12.5).color(t.muted));
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new("1. Install rclone.   2. Run `rclone config` in a terminal and add a remote.   3. Come back and pick it here.")
+                                .size(12.5)
+                                .color(t.ink),
+                        );
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui.add(theme::secondary("Get rclone")).clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab("https://rclone.org/install/"));
+                            }
+                            if ui.add(theme::secondary("Look again")).clicked() {
+                                self.cloud_remotes = None;
+                            }
+                        });
+                        ui.add_space(10.0);
+                    } else {
+                        theme::setting_row(ui, "Remote", "One of the remotes in your rclone configuration.", |ui| {
+                            if ui.add(theme::secondary("Refresh")).clicked() {
+                                self.cloud_remotes = None;
+                            }
+                            egui::ComboBox::from_id_salt("rclone_remote")
+                                .selected_text(if remote.is_empty() { "Choose…" } else { remote.as_str() })
+                                .width(200.0)
+                                .show_ui(ui, |ui| {
+                                    for r in &remotes {
+                                        ui.selectable_value(remote, r.clone(), r.as_str());
+                                    }
+                                });
+                        });
+                        theme::row_divider(ui);
+                        theme::setting_row(ui, "Folder", "Inside the remote; created if it doesn't exist.", |ui| {
+                            ui.add(egui::TextEdit::singleline(folder).hint_text("CreativeCraft").desired_width(220.0));
+                        });
+                    }
+                }
+                CloudChoice::Folder { path } => {
+                    let mut p = path.display().to_string();
+                    theme::setting_row(
+                        ui,
+                        "Folder",
+                        "A folder your sync app (Dropbox, OneDrive, Nextcloud…) backs up, or a NAS share mounted on this computer (SMB, NFS).",
+                        |ui| {
+                            if ui.add(egui::TextEdit::singleline(&mut p).hint_text("e.g. ~/Dropbox/Art or /mnt/nas/art").desired_width(260.0)).changed() {
+                                *path = p.clone().into();
+                            }
+                        },
+                    );
                 }
                 CloudChoice::Off => {}
-            }
-            if let Some((label, cmd)) = action {
-                self.run(label, cmd);
-            }
-            if !matches!(self.draft.cloud, CloudChoice::Off) {
+            });
+            ui.add_space(12.0);
+            theme::card(ui, |ui| {
+                theme::setting_row(ui, "Check the connection", "Lists what's there without changing anything.", |ui| {
+                    if ui.add_enabled(idle, theme::secondary("Test connection")).clicked() {
+                        // settings first, so the test uses what's on screen
+                        self.save_draft();
+                        action = Some(("Test connection", Command::TestCloud));
+                    }
+                });
                 theme::row_divider(ui);
                 theme::setting_row(ui, "Sync automatically", "Every few minutes while CreativeCraft is open. 0 means only when you click Sync.", |ui| {
                     ui.label(RichText::new("minutes").color(t.muted));
                     ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
                 });
-            }
-        });
+                theme::row_divider(ui);
+                theme::setting_row(ui, "Files not to sync", "Patterns in .creativecraftignore in your projects folder, like renders/ or *.mov.", |ui| {
+                    if ui.add(theme::secondary("Edit ignore rules")).clicked() {
+                        let file = self.draft.projects_dir.join(".creativecraftignore");
+                        if !file.exists() {
+                            let _ = std::fs::create_dir_all(&self.draft.projects_dir);
+                            let _ = std::fs::write(&file, IGNORE_TEMPLATE);
+                        }
+                        let _ = open::that_detached(&file);
+                    }
+                });
+            });
+        }
+        if let Some((label, cmd)) = action {
+            self.run(label, cmd);
+        }
         if let CloudChoice::GoogleDrive { client_id, .. } = &self.draft.cloud {
             let open = !self.signed_in || client_id.trim().is_empty();
             ui.add_space(16.0);

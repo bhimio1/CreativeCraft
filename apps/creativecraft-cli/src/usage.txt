@@ -8,9 +8,13 @@ USAGE
   creativecraft-cli install <app> --release                    …back to the official releases
   creativecraft-cli remove <app>...        uninstall
   creativecraft-cli open <app> [files...]  open an app
-  creativecraft-cli sync [--preview]       sync the projects folder with cloud storage
+  creativecraft-cli sync [--preview|--test] sync the projects folder with cloud storage (or show the
+                                           plan, or just check the connection)
   creativecraft-cli login | logout         sign in to / out of Google Drive
   creativecraft-cli projects [--json]      recent files in the projects folder, newest first
+  creativecraft-cli plugins                 Marketplace plugins and their state
+  creativecraft-cli plugins install|remove|enable|disable <id>
+  creativecraft-cli plugins refresh        fetch the newest plugin list
   creativecraft-cli bug [app]              report a bug in an app (or, with no app, in CreativeCraft)
   creativecraft-cli chat <message>         one AI chat turn (continues the current chat)
   creativecraft-cli chat --new             start a fresh chat

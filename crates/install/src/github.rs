@@ -51,6 +51,15 @@ fn net(e: impl std::fmt::Display) -> InstallError {
     InstallError::Net(e.to_string())
 }
 
+/// A small text file over HTTPS (e.g. the plugin index); `None` if there's nothing at `url`.
+pub fn fetch_text(url: &str) -> Result<Option<String>, InstallError> {
+    match get(url).call() {
+        Ok(r) => r.into_string().map(Some).map_err(net),
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(e) => Err(net(e)),
+    }
+}
+
 pub fn latest_release(repo: &str) -> Result<Release, InstallError> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let r: ApiRelease = match get(&url).set("Accept", "application/vnd.github+json").call() {

@@ -81,7 +81,9 @@ mod tests {
     #[test]
     fn hub_reports_go_to_creativecraft() {
         let url = bug_report_url(None, None);
-        assert!(url.starts_with("https://github.com/") && url.contains("/issues/new?body="), "{url}");
+        // owner/name present, not an empty repository path
+        assert!(url.starts_with("https://github.com/") && !url.starts_with("https://github.com//"), "{url}");
+        assert_eq!(url.split("/issues/new").next().map(|r| r.trim_start_matches("https://github.com/").split('/').count()), Some(2), "{url}");
         assert!(url.contains("CreativeCraft%3A%20"), "{url}");
     }
 

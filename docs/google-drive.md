@@ -31,8 +31,8 @@ in Google Cloud. CreativeCraft doesn't ship one built in, so whoever runs or pac
 client once (about ten minutes, free) and enters its ID and secret. If someone gave you a build
 of CreativeCraft with Drive already working, skip to [Sign in](#6-sign-in).
 
-> **Don't have a Google Cloud account or don't want one?** Use **Settings → Cloud sync → A
-> folder** instead and point it at the folder that Google Drive for desktop (or Dropbox,
+> **Don't have a Google Cloud account or don't want one?** [Cloud sync](cloud-sync.md) also works
+> with WebDAV, S3 and rclone, or use **Settings → Cloud sync → A folder** instead and point it at the folder that Google Drive for desktop (or Dropbox,
 > OneDrive, Nextcloud…) already syncs. You get the same conflict-safe sync with no setup.
 
 ## Setup

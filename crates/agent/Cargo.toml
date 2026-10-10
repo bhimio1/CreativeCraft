@@ -3,6 +3,7 @@ name = "creativecraft-agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "CreativeCraft L2: the AI assistant, an external agent CLI (Claude Code, OpenCode, Hermes Agent, Antigravity CLI, or your own), wired to the hub's MCP server"
 

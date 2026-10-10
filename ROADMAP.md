@@ -24,11 +24,13 @@
 - [x] Projects page: recent files with embedded previews; `creativecraft-cli projects`
 - [x] Install sources: a fork's releases, or git builds (official or fork, any branch) with cargo
 - [x] Installed external apps show their own icon (Linux desktop entries, macOS bundles)
-- [x] Marketplace page (placeholder: "coming soon")
-- [ ] Plugin support: a plugin format, a catalog, install/update/remove from the Marketplace
+- [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
+- [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
 - [ ] Projects: previews for PDF (needs a pure-Rust renderer) and compressed `.blend`
 - [ ] Terminal: mouse reporting for full-screen TUIs, double-click word selection, a font-size setting
+- [x] Cloud sync: WebDAV, S3-compatible and rclone backends, NAS guidance, retries, checked downloads, hash cache, `.creativecraftignore`, secrets file
+- [ ] Cloud sync: S3 multipart for files over 5 GB, resumable WebDAV uploads, sync on file change
 - [x] Agent tabs: several agents at once, each with its own app instances (`app_open_instance`)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed

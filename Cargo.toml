@@ -15,6 +15,7 @@ repository = "https://github.com/bhimio1/CreativeCraft"
 creativecraft-platform = { path = "crates/platform" }   # L0, std only
 creativecraft-sync-plan = { path = "crates/sync-plan" } # L0, std only
 creativecraft-catalog = { path = "crates/catalog" }     # L1
+creativecraft-marketplace = { path = "crates/marketplace" } # L1
 creativecraft-install = { path = "crates/install" }     # L2
 creativecraft-cloud = { path = "crates/cloud" }         # L2
 creativecraft-mcp = { path = "crates/mcp" }             # L2

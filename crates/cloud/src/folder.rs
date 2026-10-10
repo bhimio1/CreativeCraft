@@ -39,7 +39,7 @@ impl CloudStore for FolderStore {
         Ok(())
     }
 
-    fn upload(&mut self, path: &str, src: &Path) -> Result<(), CloudError> {
+    fn upload(&mut self, path: &str, src: &Path) -> Result<Option<String>, CloudError> {
         let dest = self.abs(path);
         if let Some(d) = dest.parent() {
             std::fs::create_dir_all(d)?;
@@ -49,7 +49,7 @@ impl CloudStore for FolderStore {
         let tmp = dest.with_file_name(tmp_name);
         std::fs::copy(src, &tmp)?;
         std::fs::rename(tmp, dest)?;
-        Ok(())
+        Ok(None)
     }
 
     fn trash(&mut self, path: &str) -> Result<(), CloudError> {
@@ -76,7 +76,8 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<RemoteFile>) -> Result<(), CloudE
         if ft.is_dir() {
             walk(root, &p, out)?;
         } else if ft.is_file() {
-            out.push(RemoteFile { md5: md5_file(&p)?, size: e.metadata()?.len(), path: rel });
+            let md5 = md5_file(&p)?;
+            out.push(RemoteFile { fingerprint: md5.clone(), md5: Some(md5), size: e.metadata()?.len(), path: rel });
         }
     }
     Ok(())

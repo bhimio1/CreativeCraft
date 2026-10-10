@@ -12,10 +12,26 @@ Pure Rust, built the same way as the Craft apps: a layered Cargo workspace, a na
 window on wgpu (no Electron, Tauri or webview), a headless CLI, and every action going through one
 command registry, so anything you can click, an agent can do.
 
-<p><img src="docs/preview/apps.png" width="49%"> <img src="docs/preview/assistant.png" width="49%"></p>
+<p><img src="docs/screenshots/apps.png" width="100%"></p>
 
-> Previews are rendered from the UI's layout and colours by `docs/preview/render.py`; the real
-> window is drawn by egui and differs in font rendering details.
+<p>
+<img src="docs/screenshots/projects.png" width="32%" alt="Projects: recent files with previews">
+<img src="docs/screenshots/assistant.png" width="32%" alt="Assistant: agents in tabs">
+<img src="docs/screenshots/settings.png" width="32%" alt="Settings in the light theme">
+</p>
+
+<p><img src="docs/screenshots/agent-house-on-a-hill.png" width="49%"><br>
+<sub>Made by an agent in PhotoCraft from one sentence: "make a picture of a house on a hill".</sub></p>
+
+## Install
+
+| Platform | How |
+|---|---|
+| **Arch Linux** | From the AUR: [`creativecraft-bin`](https://aur.archlinux.org/packages/creativecraft-bin), e.g. `yay -S creativecraft-bin` or `paru -S creativecraft-bin` |
+| **Linux (any distro)** | Download `creativecraft-<version>-linux-<arch>.flatpak` from [Releases](https://github.com/bhimio1/CreativeCraft/releases) and run `flatpak install --user creativecraft-*.flatpak` (it pulls the Freedesktop runtime from Flathub) |
+| **Linux, macOS, Windows** | Portable archives (`.tar.gz`, `.zip`) on [Releases](https://github.com/bhimio1/CreativeCraft/releases), checked against `SHA256SUMS` |
+
+Releases are pre-releases for now (pre-alpha).
 
 > **Pitch build:** shows the ArtCraft logo and the Craft app icons for a presentation to the
 > ArtCraft Team. See [NOTICE](NOTICE) before distributing.
@@ -45,8 +61,9 @@ Linux builds need the usual windowing dev packages for eframe (Wayland/X11, xkbc
 | **Forks and git builds** | Each Craft app can instead install from a fork's releases, or be built from git (the official repository or any fork, any branch) with your own `git` and `cargo`: **… → Install source** in Apps, or `creativecraft-cli install <app> --fork owner/name` / `--git [url] [--branch b]`. Updates fetch and rebuild only what changed. |
 | **Other open-source apps** | Detected on `PATH`, in `/Applications`, or under Program Files; "Get it" opens the official download page. Once installed they show the icon their own installation provides (desktop entry on Linux, bundle on macOS). CreativeCraft never redistributes them or their artwork. |
 | **Projects** | A grid of recent files in the projects folder with previews taken from the files themselves (embedded thumbnails in ZIP-based documents such as `.pcraft`, OpenDocument and Office files, `.blend` thumbnails, images, the first lines of text files), each opening in the app that made it. |
-| **Cloud saves** | A projects folder synced with **Google Drive** (REST API, `drive.file` scope: CreativeCraft can only see files it created) or **any folder** your sync client mirrors (Drive for desktop, Dropbox, OneDrive, Nextcloud…). Three-way sync: conflicting edits are never overwritten; the other version is saved alongside as `name (cloud copy for <computer>).ext`. Deletions go to the trash. |
+| **Cloud sync** | Keep the projects folder in sync with **Google Drive**, any **WebDAV** server (Nextcloud, ownCloud, Synology, QNAP, TrueNAS, pCloud…), **S3-compatible storage** (AWS, Backblaze B2, Cloudflare R2, Wasabi, MinIO), anything your own **rclone** reaches (Dropbox, OneDrive, Box, SFTP, SMB…), or **any folder** (a synced folder or a mounted NAS share). Three-way sync never overwrites: conflicting edits are kept side by side, deletions go to a trash, downloads are checksum-checked before they replace anything. `.creativecraftignore` for files not to sync. See [docs/cloud-sync.md](docs/cloud-sync.md). |
 | **AI assistant** | The Assistant page runs agents in tabs: each tab is a terminal with an agent CLI's own interactive UI (any mix of Claude Code, OpenCode, Hermes, Antigravity or your own) in the projects folder, with the hub as an MCP server, so several agents can work on different tasks at once. `creativecraft-cli chat` runs one headless turn instead. No API keys in CreativeCraft: the agent uses its own account and model. See [docs/ai-chat.md](docs/ai-chat.md). |
+| **Marketplace** | Plugins that give agents tools for more apps: Blender, Godot and Inkscape to start. Each is an MCP server run from its publisher's own package; installing shows exactly what will run first. See [docs/marketplace.md](docs/marketplace.md). |
 | **MCP hub** | `creativecraft-cli mcp` is an MCP server (stdio). It exposes hub tools (`hub_list_apps`, `hub_install_app`, `hub_launch_app`, `hub_sync_projects`) and starts each app's own `<app>-cli mcp` on demand, re-exporting its tools as `<app>__<tool>`. Agents work in the app's visible window by default (the desktop app's control channel), so you can watch and take over, and can open more independent instances, each its own window (`app_open_instance` → `photocraft-2__<tool>`, …). Files they save go to the projects folder. |
 
 ### Set up the assistant
@@ -84,8 +101,9 @@ crates/
   platform     L0  host OS/arch, release-asset matching, version compare   (std only)
   sync-plan    L0  three-way sync planner: pure, deterministic             (std only)
   catalog      L1  app catalog model; built-in catalog/apps.toml + user overlay
+  marketplace  L1  plugin index model; built-in marketplace/plugins.toml (+ fetched update)
   install      L2  GitHub releases, download + verify, unpack, detect, launch
-  cloud        L2  CloudStore trait, Google Drive + folder backends, sync executor
+  cloud        L2  CloudStore trait; Drive, WebDAV, S3, rclone, folder backends; sync executor
   mcp          L2  MCP stdio client, hub MCP server
   agent        L2  AI assistant: agent-CLI backends, MCP wiring, interactive launch, headless turns
   engine       L3  Session + command registry (UI, CLI and agent all call this)

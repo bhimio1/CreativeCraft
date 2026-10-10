@@ -1,0 +1,16 @@
+[package]
+name = "creativecraft-marketplace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CreativeCraft L1: the plugin index (which plugins exist, how they run, what they need)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }

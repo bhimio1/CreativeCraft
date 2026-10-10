@@ -3,6 +3,7 @@ name = "creativecraft-catalog"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "CreativeCraft L1: the app catalog (which apps exist, where they come from, how to drive them)"
 

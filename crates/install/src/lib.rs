@@ -24,7 +24,7 @@ mod unpack;
 
 pub use dirs::HubDirs;
 pub use external::detect_external;
-pub use github::{Asset, Release};
+pub use github::{Asset, Release, fetch_text};
 pub use icons::IconData;
 pub use registry::{Installed, Registry};
 pub use source::Source;

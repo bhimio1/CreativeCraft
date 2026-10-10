@@ -3,6 +3,7 @@ name = "creativecraft-install"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "CreativeCraft L2: per-user install, update, detect and launch of catalog apps"
 

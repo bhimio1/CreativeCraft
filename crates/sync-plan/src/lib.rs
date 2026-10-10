@@ -162,6 +162,102 @@ pub fn is_ignored(rel: &str) -> bool {
         || name.ends_with(".swp")
 }
 
+/// The user's own ignore rules, from a `.creativecraftignore` file in the projects folder.
+///
+/// One pattern per line, gitignore-style but simpler: `#` starts a comment; `*` matches within one
+/// path segment, `**` across segments, `?` one character. A pattern with a `/` in it (other than a
+/// trailing one) is matched against the whole path from the projects folder (a leading `/` is
+/// allowed); without one it matches any file or folder name at any depth. A trailing `/` matches
+/// folders only, with everything inside them. `!pattern` re-includes what an earlier line ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IgnoreRules {
+    rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Rule {
+    pattern: String,
+    anchored: bool,
+    dir_only: bool,
+    negate: bool,
+}
+
+impl IgnoreRules {
+    /// The name of the file the rules are read from.
+    pub const FILE: &'static str = ".creativecraftignore";
+
+    pub fn parse(text: &str) -> IgnoreRules {
+        let rules = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                let (negate, l) = match l.strip_prefix('!') {
+                    Some(rest) => (true, rest),
+                    None => (false, l),
+                };
+                let dir_only = l.ends_with('/');
+                let l = l.trim_end_matches('/');
+                let anchored = l.contains('/');
+                Rule { pattern: l.trim_start_matches('/').to_string(), anchored, dir_only, negate }
+            })
+            .filter(|r| !r.pattern.is_empty())
+            .collect();
+        IgnoreRules { rules }
+    }
+
+    /// Is the file at `rel` (`/`-separated, relative to the projects folder) ignored? The last
+    /// matching rule wins, as in gitignore.
+    pub fn matches(&self, rel: &str) -> bool {
+        let mut ignored = false;
+        for r in &self.rules {
+            if r.hits(rel) {
+                ignored = !r.negate;
+            }
+        }
+        ignored
+    }
+}
+
+impl Rule {
+    fn hits(&self, rel: &str) -> bool {
+        let segs: Vec<&str> = rel.split('/').collect();
+        if self.anchored {
+            // the whole path, or (for a folder pattern, or any pattern naming a folder) a leading part of it
+            (1..=segs.len()).any(|n| {
+                let prefix = segs[..n].join("/");
+                let is_dir = n < segs.len();
+                (is_dir || !self.dir_only) && glob(&self.pattern, &prefix)
+            })
+        } else {
+            segs.iter().enumerate().any(|(i, seg)| {
+                let is_dir = i + 1 < segs.len();
+                (is_dir || !self.dir_only) && glob(&self.pattern, seg)
+            })
+        }
+    }
+}
+
+/// `*` (not across `/`), `**` (across `/`), `?` (one character, not `/`).
+fn glob(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    fn go(p: &[char], t: &[char]) -> bool {
+        match p.first() {
+            None => t.is_empty(),
+            Some('*') if p.get(1) == Some(&'*') => {
+                let rest = &p[2..];
+                let rest = rest.strip_prefix(&['/']).unwrap_or(rest);
+                (0..=t.len()).any(|i| go(rest, &t[i..])) || (0..=t.len()).any(|i| go(&p[2..], &t[i..]))
+            }
+            Some('*') => (0..=t.len()).take_while(|i| *i == 0 || t[i - 1] != '/').any(|i| go(&p[1..], &t[i..])),
+            Some('?') => t.first().is_some_and(|c| *c != '/') && go(&p[1..], &t[1..]),
+            Some(c) => t.first() == Some(c) && go(&p[1..], &t[1..]),
+        }
+    }
+    go(&p, &t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,5 +346,36 @@ mod tests {
         assert!(is_ignored("doc/~$report.docx"));
         assert!(is_ignored("big.psd.part"));
         assert!(!is_ignored("art/poster.pcraft"));
+    }
+
+    #[test]
+    fn ignore_rules() {
+        let r = IgnoreRules::parse("# renders and caches\n*.mov\nrenders/\n/exports/final-*.png\ncache/**/tmp\n!keep.mov\n\nnotes?.txt\n");
+        assert!(r.matches("clip.mov"));
+        assert!(r.matches("film/clip.mov"));
+        assert!(!r.matches("film/keep.mov"), "negation re-includes");
+        assert!(r.matches("renders/frame1.png"));
+        assert!(r.matches("film/renders/a/b.png"), "a folder pattern without / matches at any depth");
+        assert!(!r.matches("renders"), "a folder pattern doesn't match a file of that name");
+        assert!(r.matches("exports/final-1.png"));
+        assert!(!r.matches("art/exports/final-1.png"), "anchored to the projects folder");
+        assert!(!r.matches("exports/draft-1.png"));
+        assert!(r.matches("cache/tmp"));
+        assert!(r.matches("cache/a/b/tmp"));
+        assert!(r.matches("notes1.txt"));
+        assert!(!r.matches("notes12.txt"));
+        assert!(!r.matches("poster.pcraft"));
+        assert!(!IgnoreRules::parse("").matches("anything"));
+    }
+
+    #[test]
+    fn globs() {
+        assert!(glob("*.png", "a.png"));
+        assert!(!glob("*.png", "dir/a.png"), "* doesn't cross folders");
+        assert!(glob("**/a.png", "x/y/a.png"));
+        assert!(glob("**/a.png", "a.png"));
+        assert!(glob("a/**", "a/b/c"));
+        assert!(glob("?.txt", "1.txt"));
+        assert!(!glob("?.txt", "12.txt"));
     }
 }
