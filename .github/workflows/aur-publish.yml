@@ -52,6 +52,12 @@ jobs:
           # tolerate keys pasted with Windows line endings, surrounding blank lines or spaces
           printf '%s\n' "$AUR_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | sed -e '/./,$!d' > ~/.ssh/aur && chmod 600 ~/.ssh/aur
           first=$(head -1 ~/.ssh/aur)
+          # the key body without its BEGIN/END lines (a common copy-paste slip): put them back
+          if [ "${first#b3BlbnNzaC1rZXktdjE}" != "$first" ]; then
+            { echo "-----BEGIN OPENSSH PRIVATE KEY-----"; cat ~/.ssh/aur; echo "-----END OPENSSH PRIVATE KEY-----"; } > ~/.ssh/aur.full && mv ~/.ssh/aur.full ~/.ssh/aur && chmod 600 ~/.ssh/aur
+            echo "::warning title=AUR::The AUR_SSH_PRIVATE_KEY secret was missing its BEGIN/END lines; they were added for this run. Re-paste the whole aur_key file into the secret to silence this."
+            first=$(head -1 ~/.ssh/aur)
+          fi
           case "$first" in
             "-----BEGIN"*) ;;
             ssh-*|ecdsa-*) fail "The AUR_SSH_PRIVATE_KEY secret holds a public key (it starts with ssh-…). Put the contents of aur_key (the file without .pub) in the secret instead; aur_key.pub goes in your AUR account." ;;
