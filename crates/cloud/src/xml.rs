@@ -70,6 +70,10 @@ fn find_close(xml: &str, name: &str) -> Option<(usize, usize)> {
     None
 }
 
+pub(crate) fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
 pub(crate) fn unescape(s: &str) -> String {
     s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&#39;", "'").replace("&amp;", "&")
 }

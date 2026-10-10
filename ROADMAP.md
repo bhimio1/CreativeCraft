@@ -38,7 +38,8 @@
 - [ ] Projects: previews for compressed `.blend`
 - [x] Terminal: mouse reporting for full-screen TUIs, double/triple-click selection, text size (setting and Ctrl +/−/0), scrollback setting
 - [x] Cloud sync: WebDAV, S3-compatible and rclone backends, NAS guidance, retries, checked downloads, hash cache, `.creativecraftignore`, secrets file
-- [ ] Cloud sync: S3 multipart for files over 5 GB, resumable WebDAV uploads, sync on file change
+- [x] Cloud sync: S3 multipart uploads (files over 64 MB, up to 5 TB)
+- [ ] Cloud sync: resumable WebDAV uploads (servers differ: Nextcloud chunking v2, tus), sync on file change
 - [x] Agent tabs: several agents at once, each with its own app instances (`app_open_instance`)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed

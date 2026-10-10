@@ -43,7 +43,9 @@ Settings warns about it. Use `https://` for anything reached over the internet.
 - **Downloads are checked before they replace anything.** Each download lands in
   `.creativecraft/incoming/`, is compared with the file's checksum where the store has one, and only
   then is renamed into place. A damaged download is reported and fetched again next sync. S3
-  uploads carry a checksum the server verifies; rclone uploads are checked after the copy.
+  uploads carry a checksum the server verifies (files over 64 MB go up in parts, each checked
+  and retried on its own; an upload that can't finish is cancelled on the server); rclone
+  uploads are checked after the copy.
 - **Edits made during a sync win.** A file you changed while a sync was running is left alone and
   synced next time.
 - **One sync at a time**, even when the window, the CLI and an agent all ask for one.

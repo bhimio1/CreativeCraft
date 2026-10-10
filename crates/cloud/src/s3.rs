@@ -5,7 +5,9 @@
 //! under an optional key prefix in one bucket. A single-request upload's ETag is the MD5 of the
 //! content, so it doubles as the sync's hash; uploads send `Content-MD5`, so the server rejects a
 //! damaged transfer. Deletions copy the object to `<prefix>.creativecraft-trash/<time>/…` and then
-//! remove the original. Files over 5 GB would need multipart uploads, which aren't done yet.
+//! remove the original. Files over 64 MB go up in parts (multipart upload): each part carries its
+//! own `Content-MD5` and is retried on its own, and an upload that can't finish is aborted so no
+//! half-uploaded parts are left on the server (or billed). Objects can be up to 5 TB.
 
 // the retry closures return ureq's own (large) error type, as ureq does
 #![allow(clippy::result_large_err)]
@@ -19,8 +21,15 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const TRASH: &str = ".creativecraft-trash";
-/// The largest object a single PUT may create.
-const MAX_SINGLE_PUT: u64 = 5 * 1024 * 1024 * 1024;
+const MB: u64 = 1024 * 1024;
+/// Files larger than this go up in parts.
+const MULTIPART_ABOVE: u64 = 64 * MB;
+/// The smallest part S3 accepts (except the last) is 5 MB; parts are at least this.
+const MIN_PART: u64 = 16 * MB;
+/// S3 allows 10 000 parts; stay below with room to spare.
+const MAX_PARTS: u64 = 9_000;
+/// The largest object S3 stores.
+const MAX_OBJECT: u64 = 5 * 1024 * 1024 * MB;
 
 /// Where and how to reach the bucket.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +60,15 @@ pub struct S3Store {
     /// The prefix, normalised to "" or "folder/".
     prefix: String,
     agent: ureq::Agent,
+    /// Above this size uploads are multipart (lowered in tests).
+    multipart_above: u64,
+    min_part: u64,
+}
+
+/// The part size for a `len`-byte upload: at least `min`, whole megabytes, few enough parts.
+fn part_size(len: u64, min: u64) -> u64 {
+    let needed = len.div_ceil(MAX_PARTS);
+    needed.max(min).div_ceil(MB) * MB
 }
 
 impl S3Store {
@@ -70,7 +88,7 @@ impl S3Store {
         let prefix = cfg.prefix.trim().trim_matches('/');
         let prefix = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
         let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(20)).timeout_read(Duration::from_secs(120)).build();
-        Ok(S3Store { scheme: scheme.to_string(), host, key_base, prefix, cfg, agent })
+        Ok(S3Store { scheme: scheme.to_string(), host, key_base, prefix, cfg, agent, multipart_above: MULTIPART_ABOVE, min_part: MIN_PART })
     }
 
     fn key(&self, rel: &str) -> String {
@@ -104,6 +122,62 @@ impl S3Store {
             }
         }
         r
+    }
+}
+
+impl S3Store {
+    /// Multipart upload: start, send each part (with its MD5, retried on its own), complete.
+    /// Anything that fails aborts the upload so its parts don't linger on the server.
+    fn upload_parts(&self, path: &str, src: &Path, len: u64) -> Result<String, CloudError> {
+        let key = self.key(path);
+        let started =
+            retry(|| self.signed("POST", &key, &[("uploads", String::new())], &[]).call())?.into_string().map_err(|e| CloudError::Net(e.to_string()))?;
+        let id = xml::text(&started, "UploadId").ok_or_else(|| CloudError::Net("the server didn't start the multipart upload".into()))?;
+        let result = self.send_parts(&key, &id, src, len);
+        if result.is_err() {
+            let _ = retry(|| self.signed("DELETE", &key, &[("uploadId", id.clone())], &[]).call());
+        }
+        result
+    }
+
+    fn send_parts(&self, key: &str, id: &str, src: &Path, len: u64) -> Result<String, CloudError> {
+        use std::io::Read;
+        let size = part_size(len, self.min_part);
+        let mut file = std::fs::File::open(src)?;
+        let mut etags = Vec::new();
+        let mut buf = Vec::with_capacity(size as usize);
+        for number in 1.. {
+            buf.clear();
+            (&mut file).take(size).read_to_end(&mut buf)?;
+            if buf.is_empty() {
+                break;
+            }
+            let md5 = {
+                use md5::Digest;
+                base64::engine::general_purpose::STANDARD.encode(md5::Md5::digest(&buf))
+            };
+            let query = [("partNumber", number.to_string()), ("uploadId", id.to_string())];
+            let resp = retry(|| self.signed("PUT", key, &query, &[("content-md5", md5.clone()), ("content-length", buf.len().to_string())]).send_bytes(&buf))?;
+            let etag = resp.header("ETag").ok_or_else(|| CloudError::Net(format!("part {number} came back without an ETag")))?.to_string();
+            etags.push((number, etag));
+        }
+        if etags.is_empty() || std::fs::metadata(src)?.len() != len {
+            return Err(CloudError::Io(std::io::Error::other("the file changed while it was uploading; will retry")));
+        }
+        let mut body = String::from("<CompleteMultipartUpload>");
+        for (n, etag) in &etags {
+            body.push_str(&format!("<Part><PartNumber>{n}</PartNumber><ETag>{}</ETag></Part>", xml::escape(etag)));
+        }
+        body.push_str("</CompleteMultipartUpload>");
+        let done = retry(|| self.signed("POST", key, &[("uploadId", id.to_string())], &[("content-type", "application/xml".into())]).send_string(&body))?
+            .into_string()
+            .map_err(|e| CloudError::Net(e.to_string()))?;
+        // S3 can answer 200 and still have failed: the error is in the body
+        if done.contains("<Error>") {
+            let why = xml::text(&done, "Message").unwrap_or_else(|| "the server couldn't put the parts together".into());
+            return Err(CloudError::Net(why));
+        }
+        Ok(xml::text(&done, "ETag").unwrap_or_default().trim_matches('"').to_ascii_lowercase())
     }
 }
 
@@ -157,8 +231,11 @@ impl CloudStore for S3Store {
 
     fn upload(&mut self, path: &str, src: &Path) -> Result<Option<String>, CloudError> {
         let len = std::fs::metadata(src)?.len();
-        if len > MAX_SINGLE_PUT {
-            return Err(CloudError::Config(format!("{path} is over 5 GB; S3 uploads that large aren't supported yet")));
+        if len > MAX_OBJECT {
+            return Err(CloudError::Config(format!("{path} is over 5 TB, the most S3 stores in one object")));
+        }
+        if len > self.multipart_above {
+            return self.upload_parts(path, src, len).map(Some);
         }
         let md5_hex = crate::md5_file(src)?;
         let md5_b64 = base64::engine::general_purpose::STANDARD.encode(hex_bytes(&md5_hex));
@@ -339,5 +416,141 @@ mod tests {
         let s = S3Store::new(S3Config { endpoint: "http://nas.local:9000".into(), path_style: true, ..cfg.clone() }).unwrap();
         assert_eq!((s.host.as_str(), s.key_base.as_str()), ("nas.local:9000", "/art/"));
         assert!(S3Store::new(S3Config { endpoint: "s3.amazonaws.com".into(), ..cfg }).is_err());
+    }
+
+    /// A stand-in S3 for multipart uploads: checks each part's Content-MD5, fails one part once
+    /// (or for good), and records what it was asked.
+    struct FakeS3 {
+        base: String,
+        log: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        parts: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, Vec<u8>>>>,
+    }
+
+    fn fake_s3(fail_part: Option<(u32, bool)>) -> FakeS3 {
+        use std::io::{BufRead, BufReader, Read};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let parts = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
+        let (l, p) = (log.clone(), parts.clone());
+        std::thread::spawn(move || {
+            let mut failed_once = false;
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() || line.is_empty() {
+                    continue;
+                }
+                let mut it = line.split_whitespace();
+                let (method, target) = (it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_string());
+                let (mut len, mut md5) = (0usize, String::new());
+                loop {
+                    let mut h = String::new();
+                    reader.read_line(&mut h).unwrap();
+                    let h = h.trim_end();
+                    if h.is_empty() {
+                        break;
+                    }
+                    if let Some((k, v)) = h.split_once(':') {
+                        match k.to_ascii_lowercase().as_str() {
+                            "content-length" => len = v.trim().parse().unwrap_or(0),
+                            "content-md5" => md5 = v.trim().to_string(),
+                            _ => {}
+                        }
+                    }
+                }
+                let mut body = vec![0u8; len];
+                reader.read_exact(&mut body).unwrap();
+                l.lock().unwrap().push(format!("{method} {target}"));
+                let q = |k: &str| target.split(['?', '&']).find_map(|kv| kv.strip_prefix(&format!("{k}="))).map(String::from);
+                let (status, reply) = if method == "POST" && target.contains("uploads") {
+                    (200, "<InitiateMultipartUploadResult><UploadId>U1</UploadId></InitiateMultipartUploadResult>".to_string())
+                } else if method == "PUT" && target.contains("partNumber") {
+                    let n: u32 = q("partNumber").and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let sum = base64::engine::general_purpose::STANDARD.encode(<md5::Md5 as md5::Digest>::digest(&body));
+                    match fail_part {
+                        Some((f, forever)) if f == n && (forever || !failed_once) => {
+                            failed_once = true;
+                            (if forever { 403 } else { 500 }, "<Error><Code>Busy</Code></Error>".into())
+                        }
+                        _ if sum != md5 => (400, "<Error><Code>BadDigest</Code></Error>".into()),
+                        _ => {
+                            p.lock().unwrap().insert(n, body.clone());
+                            (200, format!("etag-{n}"))
+                        }
+                    }
+                } else if method == "POST" && target.contains("uploadId") {
+                    let order: Vec<String> = xml::elements(&String::from_utf8_lossy(&body), "PartNumber").iter().map(|s| s.to_string()).collect();
+                    l.lock().unwrap().push(format!("complete {}", order.join(",")));
+                    (200, "<CompleteMultipartUploadResult><ETag>&quot;abc123-3&quot;</ETag></CompleteMultipartUploadResult>".into())
+                } else {
+                    (204, String::new())
+                };
+                let etag = if reply.starts_with("etag-") { format!("ETag: \"{reply}\"\r\n") } else { String::new() };
+                let body = if reply.starts_with("etag-") { String::new() } else { reply };
+                let _ = write!(stream, "HTTP/1.1 {status} X\r\n{etag}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        FakeS3 { base, log, parts }
+    }
+
+    fn store(base: &str) -> S3Store {
+        let mut s = S3Store::new(S3Config {
+            endpoint: base.into(),
+            region: "us-east-1".into(),
+            bucket: "b".into(),
+            prefix: String::new(),
+            access_key: AK.into(),
+            secret_key: SK.into(),
+            path_style: true,
+        })
+        .unwrap();
+        // tiny parts, so a small file makes three
+        s.multipart_above = MB;
+        s.min_part = MB;
+        s
+    }
+
+    fn big_file(tag: &str) -> (std::path::PathBuf, Vec<u8>) {
+        let data: Vec<u8> = (0..(5 * MB / 2) as usize).map(|i| (i % 251) as u8).collect();
+        let path = std::env::temp_dir().join(format!("cc-s3-multipart-{tag}-{}", std::process::id()));
+        std::fs::write(&path, &data).unwrap();
+        (path, data)
+    }
+
+    #[test]
+    fn big_files_go_up_in_parts_and_a_busy_part_is_retried() {
+        let fake = fake_s3(Some((2, false)));
+        let (path, data) = big_file("ok");
+        let fp = store(&fake.base).upload("art/big.psd", &path).unwrap();
+        assert_eq!(fp.as_deref(), Some("abc123-3"), "the final ETag is the sync's fingerprint");
+        let parts = fake.parts.lock().unwrap();
+        assert_eq!(parts.keys().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(parts.values().flatten().copied().collect::<Vec<u8>>(), data, "the parts make the file");
+        let log = fake.log.lock().unwrap();
+        assert!(log.iter().any(|l| l == "complete 1,2,3"));
+        assert_eq!(log.iter().filter(|l| l.contains("partNumber=2")).count(), 2, "part 2 was retried");
+        assert!(!log.iter().any(|l| l.starts_with("DELETE")), "nothing aborted");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_upload_that_cant_finish_is_aborted() {
+        let fake = fake_s3(Some((2, true)));
+        let (path, _) = big_file("fail");
+        assert!(store(&fake.base).upload("art/big.psd", &path).is_err());
+        let log = fake.log.lock().unwrap();
+        assert!(log.iter().any(|l| l.starts_with("DELETE") && l.contains("uploadId=U1")), "aborted: {log:?}");
+        assert!(!log.iter().any(|l| l.starts_with("complete")));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn part_sizes_stay_within_s3s_limits() {
+        assert_eq!(part_size(100 * MB, MIN_PART), 16 * MB);
+        let huge = 4 * 1024 * 1024 * MB; // 4 TB
+        let p = part_size(huge, MIN_PART);
+        assert!(huge.div_ceil(p) <= MAX_PARTS && p.is_multiple_of(MB));
     }
 }
