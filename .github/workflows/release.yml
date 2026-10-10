@@ -24,7 +24,27 @@ env:
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
+  # fails in seconds, before any building, when the tag and Cargo.toml disagree
+  check:
+    name: Check the version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          tag_version=${TAG#v}
+          cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "${TAG:0:1}" != "v" ]; then
+            echo "::error title=Version::The tag must start with v (for example v$cargo_version); got '$TAG'."; exit 1
+          fi
+          if [ "$tag_version" != "$cargo_version" ]; then
+            echo "::error title=Version mismatch::You asked for $TAG, but Cargo.toml on this branch says version = \"$cargo_version\". Change the version in Cargo.toml to \"$tag_version\", commit and push it, wait for CI, then run the release again (or release v$cargo_version if that's what you meant)."
+            exit 1
+          fi
+          echo "::notice title=Version::$TAG matches Cargo.toml"
+
   build:
+    needs: check
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
