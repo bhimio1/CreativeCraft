@@ -60,4 +60,5 @@ fails on any formatting difference and stops before building.
    and publishes a pre-release with the archives and `SHA256SUMS`. It also builds Flatpak bundles
    (`packaging/flatpak/`) and an AUR `creativecraft-bin` PKGBUILD (`packaging/aur/PKGBUILD.in`),
    test-builds the PKGBUILD against the published release, and pushes it to the AUR when the
-   `AUR_SSH_PRIVATE_KEY` secret is set.
+   `AUR_SSH_PRIVATE_KEY` secret is set (through `.github/workflows/aur-publish.yml`; run that
+   workflow by hand with a tag to retry an AUR publish without rebuilding).
