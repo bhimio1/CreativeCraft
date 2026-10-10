@@ -12,6 +12,7 @@ pub mod projects;
 mod report;
 mod settings;
 pub mod stock;
+pub mod updates;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
@@ -95,6 +96,9 @@ pub enum Command {
     TestGenerator(String),
     /// Move a generated file (and its note) to the projects folder's trash.
     TrashGenerated(PathBuf),
+    /// Look for newer versions without installing anything: one app (`Some(id)`), or every app
+    /// the hub installed and CreativeCraft itself.
+    CheckUpdates(Option<String>),
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -120,6 +124,7 @@ impl Command {
             Command::Generate { .. } => "generate.run",
             Command::TestGenerator(_) => "generate.test",
             Command::TrashGenerated(_) => "generate.trash",
+            Command::CheckUpdates(_) => "app.check_updates",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -301,6 +306,7 @@ impl Session {
             Command::Generate { request, provider } => self.generate(&request, provider.as_deref(), events),
             Command::TestGenerator(id) => self.test_generator(&id),
             Command::TrashGenerated(file) => generate::trash_generated(&self.settings.projects_dir, &file),
+            Command::CheckUpdates(only) => Ok(self.update_job(only.as_deref())?.run().summary()),
             Command::TestCloud => {
                 let mut store = self.cloud_store()?;
                 Ok(sync::test_connection(store.as_mut())?)
@@ -412,6 +418,9 @@ impl creativecraft_mcp::HubBackend for Session {
     }
     fn sync(&mut self) -> Result<String, String> {
         self.execute(Command::Sync, &mut |_| {}).map_err(|e| e.to_string())
+    }
+    fn check_updates(&mut self) -> Result<Value, String> {
+        Ok(self.update_job(None).map_err(|e| e.to_string())?.run().json())
     }
     fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String> {
         Session::spawn_mcp(self, id, window).map_err(|e| e.to_string())

@@ -21,13 +21,15 @@ mod icons;
 mod registry;
 mod source;
 mod unpack;
+mod updates;
 
 pub use dirs::HubDirs;
 pub use external::detect_external;
-pub use github::{Asset, Release, fetch_text};
+pub use github::{Asset, Release, fetch_text, newest_release};
 pub use icons::IconData;
 pub use registry::{Installed, Registry};
 pub use source::Source;
+pub use updates::{UpdateCheck, check_update};
 
 use creativecraft_catalog::{AppSpec, Kind};
 use creativecraft_platform::Host;
@@ -150,13 +152,6 @@ impl Installer {
             Source::Fork { repo } => self.install_release(app, repo, Some(format!("fork {repo}")), progress),
             Source::Git { url, branch } => self.install_git(app, url, branch, progress),
         }
-    }
-
-    /// `Some(new_tag)` if a newer release than the installed one exists.
-    pub fn update_available(&self, app: &AppSpec) -> Result<Option<String>, InstallError> {
-        let Some(have) = self.registry.get(&app.id) else { return Ok(None) };
-        let latest = self.latest(app)?;
-        Ok((creativecraft_platform::cmp_versions(&latest.tag, &have.version).is_gt()).then_some(latest.tag))
     }
 
     /// Install (or update to) the latest release. Older versions are removed after the new one is

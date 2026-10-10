@@ -3,6 +3,7 @@
 //! ```text
 //! creativecraft-cli list [--json]          every app and its status
 //! creativecraft-cli install <app>…         install or update
+//! creativecraft-cli updates [app] [--json] check for updates (apps and CreativeCraft), install nothing
 //! creativecraft-cli remove <app>…
 //! creativecraft-cli open <app> [files…]
 //! creativecraft-cli sync                   one cloud sync pass
@@ -228,6 +229,22 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                     }
                 }
                 _ => return Err(EngineError::Plugin("usage: creativecraft-cli stock search|download|list …".into())),
+            }
+        }
+        "updates" | "check-updates" => {
+            let only = rest.iter().find(|a| !a.starts_with("--")).cloned();
+            let report = s.update_job(only.as_deref())?.run();
+            if rest.iter().any(|a| a == "--json") {
+                out!("{}", serde_json::to_string_pretty(&report.json()).unwrap_or_default());
+            } else {
+                out!("{}", report.summary());
+                if !report.updates.is_empty() {
+                    let ids: Vec<&str> = report.updates.iter().map(|u| u.id.as_str()).collect();
+                    out!("Update with: creativecraft-cli install {}", ids.join(" "));
+                }
+                if let Some((_, url)) = &report.hub {
+                    out!("Get the new CreativeCraft: {url}");
+                }
             }
         }
         "generate" | "gen" => generate(&mut s, rest)?,

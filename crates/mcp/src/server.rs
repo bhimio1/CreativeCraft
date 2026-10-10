@@ -13,6 +13,10 @@ pub trait HubBackend {
     fn launch(&mut self, id: &str, files: &[String]) -> Result<String, String>;
     /// Run a cloud sync pass; returns its summary.
     fn sync(&mut self) -> Result<String, String>;
+    /// Look for newer versions of installed apps (and CreativeCraft); installs nothing.
+    fn check_updates(&mut self) -> Result<Value, String> {
+        Err("update checks aren't available here".into())
+    }
     /// Start `id`'s MCP server process (stdio piped). `window`: drive the app's visible window
     /// where the app supports it (`None`: the user's default).
     fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String>;
@@ -65,6 +69,7 @@ fn hub_tools() -> Vec<Value> {
         json!({ "name": "hub_list_apps", "description": "List every app the hub knows: id, name, category, install status and whether it can be driven over MCP.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "hub_install_app", "description": "Install an app, or update it to its latest release.", "inputSchema": id_arg }),
         json!({ "name": "hub_launch_app", "description": "Open a window of an app for the user, optionally with files. Each call opens a new window.", "inputSchema": { "type": "object", "properties": { "app": { "type": "string" }, "files": { "type": "array", "items": { "type": "string" } } }, "required": ["app"] } }),
+        json!({ "name": "hub_check_updates", "description": "Check whether newer versions of the installed apps (from their releases, a fork or a git branch) or of CreativeCraft exist. Installs nothing; hub_install_app updates an app.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "hub_sync_projects", "description": "Sync the user's projects folder with their cloud storage now. Never overwrites: conflicting edits are kept side by side.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "app_tools", "description": "Start an installed app's automation (if needed) and list its tools. Afterwards they are also callable directly as `<app>__<tool>`. `app` may also be an instance id from app_open_instance. Apps with \"window\": true in hub_list_apps open their window so the user can watch; save files with paths relative to the projects folder.", "inputSchema": app_window_arg.clone() }),
         json!({ "name": "app_call", "description": "Call one of an app's tools (see app_tools). `app` may be an app id or an instance id.", "inputSchema": { "type": "object", "properties": { "app": { "type": "string" }, "tool": { "type": "string" }, "arguments": { "type": "object" } }, "required": ["app", "tool"] } }),
@@ -246,6 +251,10 @@ impl<B: HubBackend> HubServer<B> {
                 done(self.backend.launch(&s("app"), &files))
             }
             "hub_sync_projects" => done(self.backend.sync()),
+            "hub_check_updates" => match self.backend.check_updates() {
+                Ok(v) => text_result(v.to_string(), false),
+                Err(e) => text_result(e, true),
+            },
             "stock_search" => {
                 let page = args.get("page").and_then(Value::as_u64).unwrap_or(1) as u32;
                 let kind = args.get("kind").and_then(Value::as_str).map(String::from);

@@ -18,6 +18,7 @@ mod splash;
 mod stock;
 mod terminal;
 mod theme;
+mod updates;
 
 use creativecraft_catalog::Kind;
 use creativecraft_engine::{Appearance, CloudChoice, Command, CustomMcp, Event, Session, Settings};
@@ -106,6 +107,7 @@ pub struct CreativeCraftApp {
     /// Watches the projects folder for sync-on-change: the folder it watches, and the watcher
     /// (`None` when it couldn't start, e.g. too many folders for the OS; the timer still syncs).
     watcher: Option<(std::path::PathBuf, Option<creativecraft_engine::ChangeWatcher>)>,
+    updates: updates::UpdatesState,
 }
 
 impl CreativeCraftApp {
@@ -155,6 +157,7 @@ impl CreativeCraftApp {
             splash,
             secrets_place,
             watcher: None,
+            updates: updates::UpdatesState::default(),
         };
         app.refresh();
         // debug builds only: open on a given page, for screenshots and manual testing
@@ -382,6 +385,7 @@ impl CreativeCraftApp {
             theme::apply(ui.ctx(), dark);
         }
         self.pump();
+        self.updates_pump();
         self.auto_sync();
         let t = theme::Tokens::get();
 
@@ -461,6 +465,18 @@ impl CreativeCraftApp {
         }
         let color = if selected { t.ink } else { t.muted };
         ui.painter().text(rect.left_center() + vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), color);
+        // the Apps item shows how many updates are waiting
+        let updates = self.updates.count();
+        if page == Page::Apps && updates > 0 {
+            let c = rect.right_center() - vec2(18.0, 0.0);
+            ui.painter().circle_filled(c, 9.0, t.cream);
+            ui.painter().text(c, egui::Align2::CENTER_CENTER, updates.to_string(), egui::FontId::proportional(11.0), t.on_cream);
+        }
+        let resp = if page == Page::Apps && updates > 0 {
+            resp.on_hover_text(format!("{updates} update{} available", if updates == 1 { "" } else { "s" }))
+        } else {
+            resp
+        };
         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             self.page = page;
         }
@@ -544,6 +560,7 @@ impl CreativeCraftApp {
         let matches = |r: &Row| q.is_empty() || r.name.to_lowercase().contains(&q) || r.category.to_lowercase().contains(&q);
         let rows: Vec<Row> = self.rows.iter().filter(|r| matches(r)).cloned().collect();
 
+        self.updates_banner(ui);
         let installed: Vec<&Row> = rows.iter().filter(|r| !matches!(r.status, Status::NotInstalled)).collect();
         let available: Vec<&Row> = rows.iter().filter(|r| matches!(r.status, Status::NotInstalled) && r.kind == Kind::Release).collect();
         let more: Vec<&Row> = rows.iter().filter(|r| matches!(r.status, Status::NotInstalled) && r.kind == Kind::External).collect();
@@ -623,6 +640,18 @@ impl CreativeCraftApp {
                     if ui.add_enabled(idle, theme::primary("Open")).clicked() {
                         self.run(format!("Open {}", r.name), Command::Launch(r.id.clone(), vec![]));
                     }
+                    // apps the hub installed: an update when there is one, else a way to look
+                    if matches!(r.status, Status::Installed { .. }) && r.kind == Kind::Release {
+                        if let Some(latest) = self.updates.available(&r.id) {
+                            if ui.add_enabled(idle, theme::primary(&format!("Update to {latest}"))).clicked() {
+                                self.run(format!("Update {}", r.name), Command::Install(r.id.clone()));
+                            }
+                        } else if self.updates.checking(&r.id) {
+                            ui.spinner();
+                        } else if ui.add(theme::secondary("Check for updates")).on_hover_text("Looks for a newer version; installs nothing").clicked() {
+                            self.check_updates(Some(r.id.clone()));
+                        }
+                    }
                 }
                 (Status::NotInstalled, Kind::Release) => {
                     if ui.add_enabled(idle, theme::secondary("Install")).clicked() {
@@ -643,8 +672,12 @@ impl CreativeCraftApp {
         let t = theme::Tokens::get();
         let installed = matches!(r.status, Status::Installed { .. });
         ui.menu_button(RichText::new("…").size(16.0), |ui| {
-            if installed && ui.add_enabled(idle, egui::Button::new("Check for update")).clicked() {
-                self.run(format!("Update {}", r.name), Command::Install(r.id.clone()));
+            if installed && ui.add_enabled(!self.updates.checking(&r.id), egui::Button::new("Check for updates")).clicked() {
+                self.check_updates(Some(r.id.clone()));
+                ui.close();
+            }
+            if installed && ui.add_enabled(idle, egui::Button::new("Reinstall")).on_hover_text("Install the newest version again").clicked() {
+                self.run(format!("Reinstall {}", r.name), Command::Install(r.id.clone()));
                 ui.close();
             }
             if r.kind == Kind::Release

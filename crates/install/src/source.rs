@@ -160,6 +160,31 @@ fn git_output(git: &Path, dir: &Path, args: &[&str]) -> Result<String, InstallEr
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// The commit `branch` (empty: the default branch) points at in the repository at `url`, asked
+/// with `git ls-remote` (nothing is downloaded).
+pub(crate) fn remote_head(app: &AppSpec, url: &str, branch: &str) -> Result<String, InstallError> {
+    let git = tool("git", GIT_HINT)?;
+    let url = git_url(app, url)?;
+    let branch = branch.trim();
+    let wanted = if branch.is_empty() { "HEAD".to_string() } else { format!("refs/heads/{branch}") };
+    let mut c = HostCommand::new(&git);
+    c.args(["ls-remote", "--"]).arg(&url).arg(&wanted).env("GIT_TERMINAL_PROMPT", "0");
+    let out = c.into_std().output()?;
+    if !out.status.success() {
+        return Err(InstallError::Source(format!("couldn't reach {}: {}", short_url(&url), String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    head_from_ls_remote(&String::from_utf8_lossy(&out.stdout), &wanted)
+        .ok_or_else(|| InstallError::Source(format!("{} has no branch {}", short_url(&url), if branch.is_empty() { "HEAD" } else { branch })))
+}
+
+/// The commit for `wanted` in `git ls-remote` output (`<sha>\t<ref>` lines).
+pub(crate) fn head_from_ls_remote(out: &str, wanted: &str) -> Option<String> {
+    out.lines().find_map(|l| {
+        let (sha, r) = l.split_once('\t')?;
+        (r.trim() == wanted && sha.len() >= 10).then(|| sha.trim().to_string())
+    })
+}
+
 impl Installer {
     /// Clone or update the checkout for `url`/`branch`, build the app's executables with cargo
     /// and install them as `apps/<id>/git-<rev>`. The previous install stays until this succeeds.

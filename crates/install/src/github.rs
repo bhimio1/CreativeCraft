@@ -71,6 +71,30 @@ pub fn latest_release(repo: &str) -> Result<Release, InstallError> {
     Ok(Release { tag: r.tag_name, assets: r.assets.into_iter().map(|a| Asset { name: a.name, url: a.browser_download_url, size: a.size }).collect() })
 }
 
+/// The newest published release, pre-releases included (projects that only publish
+/// pre-releases have no `releases/latest`). Drafts are skipped; newest by version.
+pub fn newest_release(repo: &str) -> Result<Release, InstallError> {
+    #[derive(Deserialize)]
+    struct Listed {
+        tag_name: String,
+        #[serde(default)]
+        draft: bool,
+        assets: Vec<ApiAsset>,
+    }
+    let url = format!("https://api.github.com/repos/{repo}/releases?per_page=20");
+    let list: Vec<Listed> = match get(&url).set("Accept", "application/vnd.github+json").call() {
+        Ok(resp) => resp.into_json().map_err(net)?,
+        Err(ureq::Error::Status(404, _)) => return Err(InstallError::Source(format!("{repo} doesn't exist"))),
+        Err(e) => return Err(net(e)),
+    };
+    let newest = list
+        .into_iter()
+        .filter(|r| !r.draft)
+        .max_by(|a, b| creativecraft_platform::cmp_versions(&a.tag_name, &b.tag_name))
+        .ok_or_else(|| InstallError::Source(format!("{repo} has published no releases")))?;
+    Ok(Release { tag: newest.tag_name, assets: newest.assets.into_iter().map(|a| Asset { name: a.name, url: a.browser_download_url, size: a.size }).collect() })
+}
+
 /// Stream `url` into `dest`, hashing as it goes. Returns the lowercase hex SHA-256.
 pub fn download(url: &str, dest: &Path, progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<String, InstallError> {
     let resp = get(url).call().map_err(net)?;

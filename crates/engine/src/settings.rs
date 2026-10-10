@@ -150,6 +150,9 @@ pub struct Settings {
     /// AI image and video generation: the user's services and which to use by default.
     pub generation: GenerationSettings,
     pub terminal: TerminalSettings,
+    /// Look for newer versions of the installed apps and of CreativeCraft when the window opens
+    /// (nothing is installed without asking).
+    pub check_updates_on_start: bool,
     /// Play the short start-up animation when the window opens.
     pub intro_animation: bool,
     /// Agents work in apps' visible windows (live mode) rather than headless, so the user can
@@ -174,6 +177,7 @@ impl Default for Settings {
             plugins: BTreeMap::new(),
             generation: GenerationSettings::default(),
             terminal: TerminalSettings::default(),
+            check_updates_on_start: true,
             intro_animation: true,
             show_app_windows: true,
         }
