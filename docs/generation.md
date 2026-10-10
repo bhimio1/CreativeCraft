@@ -81,7 +81,7 @@ send other files on your computer to a service.
 **Stop** ends the wait at once. ComfyUI, Stable Diffusion WebUI, Replicate and fal are also told
 to stop the job, so it stops running (and billing). CreativeCraft doesn't stop jobs on OpenAI, Google or
 xAI, so one already started there may finish (and be billed) on their side. Anything that finished
-before the stop is still saved.
+before the stop is still saved. In the terminal, Ctrl-C does the same (press it again to quit at once).
 
 ## Local: ComfyUI
 

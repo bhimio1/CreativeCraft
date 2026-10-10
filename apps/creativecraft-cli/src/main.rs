@@ -333,6 +333,16 @@ fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
                 strength: number("--strength")?.map(|n| n.clamp(1, 100) as u8),
                 mask: value("--mask").map(std::path::PathBuf::from),
             };
+            // Ctrl-C: stop the job (on services that allow it, so it stops billing), then a second
+            // one quits at once
+            let stop = s.generation_stop.clone();
+            let _ = ctrlc::set_handler(move || {
+                if stop.is_cancelled() {
+                    std::process::exit(130);
+                }
+                eprintln!("\nstopping… (Ctrl-C again to quit now)");
+                stop.cancel();
+            });
             let result = s.execute(Command::Generate { request, provider: value("--provider") }, &mut print_progress);
             eprintln!();
             out!("{}", result?);

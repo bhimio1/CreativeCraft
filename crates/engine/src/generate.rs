@@ -277,7 +277,7 @@ impl Session {
     }
 
     pub(crate) fn generate(&self, r: &Request, provider: Option<&str>, events: &mut dyn FnMut(Event)) -> Result<String, EngineError> {
-        Ok(GenerationJob::new(&self.settings, r, provider)?.run(events)?.message)
+        Ok(GenerationJob::new(&self.settings, r, provider)?.run_cancellable(events, &self.generation_stop)?.message)
     }
 
     /// Check a provider can be reached and accepts its key, without generating anything.

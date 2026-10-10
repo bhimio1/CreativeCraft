@@ -146,6 +146,9 @@ pub struct Session {
     pub settings: Settings,
     /// The plugins the Marketplace lists.
     pub marketplace: creativecraft_marketplace::Index,
+    /// Stops the generation `Command::Generate` is running, from another thread (the CLI's
+    /// Ctrl-C). Once used it stays set: it's for a process that ends after stopping.
+    pub generation_stop: creativecraft_generate::Cancel,
 }
 
 impl Session {
@@ -161,7 +164,7 @@ impl Session {
         let installer = Installer::open(dirs.clone())?;
         let settings = Settings::load(&dirs.settings_file());
         let marketplace = plugins::load_index(&dirs.data().join("marketplace").join("plugins.toml"));
-        Ok(Session { dirs, catalog, installer, settings, marketplace })
+        Ok(Session { dirs, catalog, installer, settings, marketplace, generation_stop: Default::default() })
     }
 
     pub fn save_settings(&self) -> Result<(), EngineError> {
