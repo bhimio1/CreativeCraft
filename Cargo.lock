@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-engine",
  "creativecraft-ui-egui",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-agent"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-platform",
  "log",
@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-catalog"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-cli"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-engine",
  "creativecraft-install",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-cloud"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "creativecraft-platform",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-engine"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-agent",
  "creativecraft-catalog",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-install"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-catalog",
  "creativecraft-platform",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-marketplace"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-mcp"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-platform",
  "log",
@@ -1017,11 +1017,11 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-platform"
-version = "0.1.7"
+version = "0.2.0"
 
 [[package]]
 name = "creativecraft-stock"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "log",
  "stockcraft-local",
@@ -1031,11 +1031,11 @@ dependencies = [
 
 [[package]]
 name = "creativecraft-sync-plan"
-version = "0.1.7"
+version = "0.2.0"
 
 [[package]]
 name = "creativecraft-ui-egui"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "creativecraft-catalog",
  "creativecraft-engine",
