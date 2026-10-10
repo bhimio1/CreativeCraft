@@ -25,8 +25,20 @@
   <url type="bugtracker">https://github.com/bhimio1/CreativeCraft/issues</url>
   <screenshots>
     <screenshot type="default">
-      <caption>Apps</caption>
-      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/preview/apps.png</image>
+      <caption>Install, update and open your creative apps</caption>
+      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/screenshots/apps.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>An assistant that works inside your apps</caption>
+      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/screenshots/assistant.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Recent projects across every app</caption>
+      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/screenshots/projects.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Cloud sync and settings</caption>
+      <image>https://raw.githubusercontent.com/bhimio1/CreativeCraft/main/docs/screenshots/settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>

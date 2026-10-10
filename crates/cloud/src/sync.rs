@@ -75,9 +75,12 @@ fn skipped(rules: &IgnoreRules, rel: &str) -> bool {
     is_ignored(rel) || rules.matches(rel)
 }
 
-/// `path → (size, stamp, md5)`. The stamp is the modification time and, on Unix, the inode change
-/// time too: tools that preserve modification times (`cp -p`, unzip, rclone) can't set that one,
-/// so a file replaced by another of the same length and date is still hashed again.
+/// `path → (size, stamp, md5)`. The stamp is the modification time plus a time tools can't carry
+/// over from another file: the inode change time on Unix, the creation time on Windows. Tools that
+/// preserve modification times (`cp -p`, unzip, rclone, and `std::fs::copy` on Windows) can't set
+/// those, so a file replaced by another of the same length and date is still hashed again. Files
+/// a sync pass writes itself are dropped from the cache too (`forget_cached`), so they're always
+/// re-hashed on the next pass whatever the file system's timestamp resolution.
 #[derive(Serialize, Deserialize, Default)]
 struct HashCache(BTreeMap<String, (u64, u128, String)>);
 
@@ -92,8 +95,23 @@ fn stamp(meta: &std::fs::Metadata) -> u128 {
     }
     #[cfg(not(unix))]
     {
-        mtime
+        let created = meta.created().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+        mtime ^ created.rotate_left(64)
     }
+}
+
+/// Drop `paths` from the local hash cache, so the next snapshot hashes them from their contents.
+fn forget_cached<'a>(root: &Path, paths: impl IntoIterator<Item = &'a str>) -> Result<(), CloudError> {
+    let cache_file = state_dir(root).join("hash-cache.json");
+    let Some(mut cache) = std::fs::read(&cache_file).ok().and_then(|b| serde_json::from_slice::<HashCache>(&b).ok()) else { return Ok(()) };
+    let before = cache.0.len();
+    for p in paths {
+        cache.0.remove(p);
+    }
+    if cache.0.len() != before {
+        write_json(&cache_file, &cache)?;
+    }
+    Ok(())
 }
 
 /// Hash every syncable file under `root` (re-using the hash of files whose size and modification
@@ -301,6 +319,12 @@ pub fn run(root: &Path, store: &mut dyn CloudStore, device: &str, progress: &mut
         }
     }
     save_base(root, &label, nb)?;
+    // never trust a cached hash for a file this pass touched (see `HashCache`)
+    let touched = applied.iter().chain(&failed).flat_map(|a| match a {
+        Action::Conflict { path, conflict_path } => vec![path.as_str(), conflict_path.as_str()],
+        other => vec![other.path()],
+    });
+    forget_cached(root, touched)?;
     hashes.save(root)?;
     // fetched copies nothing needed
     for tmp in fetched.values() {
@@ -640,6 +664,29 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(a.join("f.txt"), b"two!").unwrap();
         assert_eq!(local_snapshot(&a).unwrap()["f.txt"], md5_file(&a.join("f.txt")).unwrap());
+        let _ = std::fs::remove_dir_all(&a);
+    }
+
+    /// A download that keeps the cloud copy's date (fs::copy does on Windows) can replace a local
+    /// file with one of the same size and, at coarse clock resolution, the same timestamps. Files a
+    /// sync pass wrote must therefore be re-hashed from their contents, never served from the cache.
+    #[test]
+    fn files_a_sync_touched_are_rehashed() {
+        let a = tmp("hc-touched");
+        let f = a.join("p.pcraft");
+        std::fs::write(&f, b"from a").unwrap();
+        let first = local_snapshot(&a).unwrap()["p.pcraft"].clone();
+        // poison the cache entry for the current size and stamp, as a same-size, same-date
+        // replacement would
+        let cache_file = a.join(".creativecraft/hash-cache.json");
+        let mut cache: HashCache = serde_json::from_slice(&std::fs::read(&cache_file).unwrap()).unwrap();
+        std::fs::write(&f, b"from b").unwrap();
+        let meta = std::fs::metadata(&f).unwrap();
+        cache.0.insert("p.pcraft".into(), (meta.len(), stamp(&meta), first.clone()));
+        write_json(&cache_file, &cache).unwrap();
+        assert_eq!(local_snapshot(&a).unwrap()["p.pcraft"], first, "the poisoned entry is what a stale cache returns");
+        forget_cached(&a, ["p.pcraft"]).unwrap();
+        assert_eq!(local_snapshot(&a).unwrap()["p.pcraft"], md5_file(&f).unwrap());
         let _ = std::fs::remove_dir_all(&a);
     }
 
