@@ -48,6 +48,8 @@ jobs:
         run: |
           set -uo pipefail
           fail() { echo "::error title=AUR::$1"; exit 1; }
+          # the AUR's SSH server drops connections under load: retry network steps with backoff
+          retry() { local n=0 out; until out=$("$@" 2>&1); do n=$((n+1)); [ $n -ge 4 ] && { echo "$out"; return 1; }; echo "retry $n: ${out//$'\n'/ }"; sleep $((n*20)); done; echo "$out"; }
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           # tolerate keys pasted with Windows line endings, surrounding blank lines or spaces
           printf '%s\n' "$AUR_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | sed -e '/./,$!d' > ~/.ssh/aur && chmod 600 ~/.ssh/aur
@@ -72,14 +74,14 @@ jobs:
           if echo "$auth" | grep -qi "permission denied"; then
             fail "The AUR rejected the key. Add this public key to your AUR account (My Account → SSH Public Key) and save: $pub"
           fi
-          out=$(git clone ssh://aur@aur.archlinux.org/creativecraft-bin.git aur-repo 2>&1) || fail "git clone from the AUR failed: ${out//$'\n'/ }"
+          out=$(retry git clone ssh://aur@aur.archlinux.org/creativecraft-bin.git aur-repo) || fail "git clone from the AUR failed after 4 tries: ${out//$'\n'/ }"
           cp aur/PKGBUILD aur/.SRCINFO aur-repo/
           cd aur-repo
           git config user.name "$AUR_USERNAME" && git config user.email "$AUR_EMAIL"
           git add PKGBUILD .SRCINFO
           if git diff --cached --quiet; then echo "::notice title=AUR::creativecraft-bin is already up to date"; exit 0; fi
           git commit -qm "Update to ${TAG#v}"
-          out=$(git push origin HEAD:master 2>&1) || fail "Pushing to the AUR failed: ${out//$'\n'/ }"
+          out=$(retry git push origin HEAD:master) || fail "Pushing to the AUR failed after 4 tries: ${out//$'\n'/ }"
           echo "::notice title=AUR::Published creativecraft-bin ${TAG#v}: https://aur.archlinux.org/packages/creativecraft-bin"
 
       # the same lookup yay and paru make, plus what the AUR's git repo holds
