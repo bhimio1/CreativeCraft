@@ -296,8 +296,10 @@ mod tests {
         assert!(s.generation_provider(None, Kind::Image).is_err());
         let preset = |id: &str| creativecraft_generate::presets().into_iter().find(|p| p.id == id).unwrap().provider();
         s.settings.generation.providers = vec![preset("automatic1111"), preset("openai")];
+        assert!(s.generation_provider(None, Kind::Video).is_err(), "neither makes video");
+        s.settings.generation.providers.push(preset("google"));
         assert_eq!(s.generation_provider(None, Kind::Image).unwrap().id, "automatic1111");
-        assert_eq!(s.generation_provider(None, Kind::Video).unwrap().id, "openai", "A1111 can't make video");
+        assert_eq!(s.generation_provider(None, Kind::Video).unwrap().id, "google", "A1111 and OpenAI can't make video");
         s.settings.generation.image_provider = "openai".into();
         assert_eq!(s.generation_provider(None, Kind::Image).unwrap().id, "openai");
         assert_eq!(s.generation_provider(Some("automatic1111"), Kind::Image).unwrap().id, "automatic1111");

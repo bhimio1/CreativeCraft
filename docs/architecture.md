@@ -33,7 +33,7 @@ save into `<projects>/Stock`; the Stock page searches and fetches previews on it
 
 ## AI generation
 
-`creativecraft-generate` (L2) has one adapter per kind of API: OpenAI (images and Sora),
+`creativecraft-generate` (L2) has one adapter per kind of API: OpenAI (images and edits),
 OpenAI-compatible, xAI, Google (Gemini images and Veo), Replicate, fal (queue), ComfyUI (built-in or
 user API-format workflow) and Stable Diffusion WebUI. All of them use blocking `ureq`, and long jobs
 are polled. Generation POSTs are never retried, so a request is never billed twice. Reads and

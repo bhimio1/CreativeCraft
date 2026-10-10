@@ -17,7 +17,7 @@ Set them up in **Settings → AI generation**: **Add a service**, fill in its ke
 |---|---|---|---|
 | **ComfyUI** (local) | Any Stable Diffusion checkpoint with the built-in workflow; FLUX, SD3 and anything else with your own workflow | With your own workflow (Wan, LTX, Hunyuan, …) | ComfyUI running (`http://127.0.0.1:8188` by default) |
 | **Stable Diffusion WebUI** (local) | AUTOMATIC1111, Forge, SD.Next | No | Started with `--api` (`http://127.0.0.1:7860`) |
-| **OpenAI** | GPT Image | Sora | An API key from platform.openai.com |
+| **OpenAI** | GPT Image | No: OpenAI retired its video API (Sora) on 24 September 2026 | An API key from platform.openai.com |
 | **Google Gemini** | Gemini image models | Veo | An API key from Google AI Studio |
 | **xAI** | Grok Imagine | Grok Imagine video | An API key from console.x.ai |
 | **Replicate** | Hundreds of models: FLUX, Ideogram, Recraft, Seedream, Imagen… | Veo, Kling, MiniMax, Wan, Seedance… | An API token; the model as `owner/name` |
@@ -47,7 +47,7 @@ Kontext follow your words instead.
 
 | Service | How the picture is sent |
 |---|---|
-| OpenAI | Image edits (GPT Image takes several); Sora uses it as the first frame |
+| OpenAI | Image edits (GPT Image takes up to 16) |
 | OpenAI-compatible | Image edits, one picture |
 | xAI | Image edits; Grok Imagine video uses it as the first frame |
 | Google | Gemini takes it with your words; Veo uses it as the first frame |

@@ -5,7 +5,7 @@
 //!
 //! | kind | service | images | video |
 //! |---|---|---|---|
-//! | `openai` | OpenAI | GPT Image (`/images/generations`) | Sora (`/videos`) |
+//! | `openai` | OpenAI | GPT Image (`/images/generations`, `/images/edits`) | none (Sora was retired in September 2026) |
 //! | `openai_compatible` | any OpenAI-style server: Together, LocalAI, gateways, custom | `/images/generations` | |
 //! | `xai` | xAI | Grok Imagine (OpenAI-style) | `/videos/generations` |
 //! | `google` | Gemini API | Gemini image models (`generateContent`) | Veo (`predictLongRunning`) |
@@ -208,7 +208,7 @@ impl ProviderKind {
 
     /// Can make video at all (with a suitable model or workflow).
     pub fn does_video(self) -> bool {
-        matches!(self, ProviderKind::Openai | ProviderKind::Xai | ProviderKind::Google | ProviderKind::Replicate | ProviderKind::Fal | ProviderKind::Comfyui)
+        matches!(self, ProviderKind::Xai | ProviderKind::Google | ProviderKind::Replicate | ProviderKind::Fal | ProviderKind::Comfyui)
     }
 }
 
@@ -404,7 +404,10 @@ fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Ou
     }
     match (p.kind, r.kind) {
         (ProviderKind::Openai | ProviderKind::OpenaiCompatible | ProviderKind::Xai, Kind::Image) => openai::image(p, &r),
-        (ProviderKind::Openai, Kind::Video) => openai::sora(p, &r, status),
+        (ProviderKind::Openai, Kind::Video) => Err(GenError::Config(format!(
+            "{}: OpenAI's video API (Sora) was retired on 24 September 2026; make video with Google, xAI, Replicate or fal",
+            p.name
+        ))),
         (ProviderKind::Xai, Kind::Video) => openai::xai_video(p, &r, status),
         (ProviderKind::Google, Kind::Image) => google::image(p, &r),
         (ProviderKind::Google, Kind::Video) => google::veo(p, &r, status),

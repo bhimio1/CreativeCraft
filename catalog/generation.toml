@@ -19,8 +19,8 @@ kind = "openai"
 base_url = "https://api.openai.com/v1"
 key_url = "https://platform.openai.com/api-keys"
 image_model = "gpt-image-2"
-video_model = "sora-2"
-note = "GPT Image for pictures, Sora for video."
+video_model = ""
+note = "GPT Image for pictures and edits. (OpenAI's video API, Sora, was retired on 24 September 2026: use Google, xAI, Replicate or fal for video.)"
 
 [[preset]]
 id = "google"

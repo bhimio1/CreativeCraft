@@ -1,4 +1,4 @@
-//! OpenAI (GPT Image, Sora), OpenAI-compatible image servers, and xAI (Grok Imagine).
+//! OpenAI (GPT Image), OpenAI-compatible image servers, and xAI (Grok Imagine images and video).
 
 use crate::http::{Part, VIDEO_LIMIT, b64, get_bytes, get_json, poll, post_json, post_multipart};
 use crate::{Aspect, GenError, Output, Provider, ProviderKind, Request, sniff_ext};
@@ -61,61 +61,6 @@ pub(crate) fn image(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> 
         out.push(Output { ext: sniff_ext(&bytes).to_string(), bytes, model: model.clone() });
     }
     Ok(out)
-}
-
-/// The Sora size for an aspect (Sora has no square size: landscape stands in).
-fn sora_size(a: Aspect) -> &'static str {
-    match a {
-        Aspect::Portrait => "720x1280",
-        _ => "1280x720",
-    }
-}
-
-/// The nearest length Sora offers: 4, 8 or 12 seconds.
-fn sora_seconds(s: Option<u32>) -> &'static str {
-    match s.unwrap_or(4) {
-        0..=5 => "4",
-        6..=9 => "8",
-        _ => "12",
-    }
-}
-
-/// `POST /videos`, poll `GET /videos/{id}` until `completed`, download `/videos/{id}/content`.
-pub(crate) fn sora(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Output>, GenError> {
-    let model = p.model(r)?;
-    let headers = auth(p)?;
-    let body = json!({ "model": model, "prompt": r.prompt, "seconds": sora_seconds(r.seconds), "size": sora_size(r.aspect) });
-    let inputs = r.inputs()?;
-    let job = match inputs.first() {
-        None => post_json(&p.name, &format!("{}/videos", p.base()), &headers, &body)?,
-        // the first frame, as a file (Sora wants it at the video's size)
-        Some(first) => {
-            let mut parts: Vec<Part> = Vec::new();
-            if let Value::Object(m) = &body {
-                for (k, v) in m {
-                    parts.push(Part::Text(k, v.as_str().map_or_else(|| v.to_string(), String::from)));
-                }
-            }
-            parts.push(Part::File("input_reference", first));
-            post_multipart(&p.name, &format!("{}/videos", p.base()), &headers, &parts)?
-        }
-    };
-    let id = job.get("id").and_then(Value::as_str).ok_or_else(|| GenError::Failed(format!("{} didn't return a job id", p.name)))?.to_string();
-    let url = format!("{}/videos/{id}", p.base());
-    poll(VIDEO_LIMIT, Duration::from_secs(5), || {
-        let v = get_json(&p.name, &url, &headers)?;
-        match v.get("status").and_then(Value::as_str).unwrap_or("") {
-            "completed" => Ok(Some(())),
-            "failed" => Err(GenError::Failed(format!("{}: {}", p.name, v.pointer("/error/message").and_then(Value::as_str).unwrap_or("the video failed")))),
-            s => {
-                let pct = v.get("progress").and_then(Value::as_u64).map(|n| format!(" {n}%")).unwrap_or_default();
-                status(&format!("{s}{pct}"));
-                Ok(None)
-            }
-        }
-    })?;
-    let bytes = get_bytes(&p.name, &format!("{url}/content"), &headers)?;
-    Ok(vec![Output { ext: "mp4".into(), bytes, model }])
 }
 
 /// xAI: `POST /videos/generations` → `request_id`; poll `GET /videos/{id}` until `done`; `video.url`.

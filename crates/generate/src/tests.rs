@@ -180,30 +180,11 @@ fn compatible_servers_without_a_key_and_url_results() {
 }
 
 #[test]
-fn sora_polls_then_downloads() {
-    let (base, seen) = serve(Box::new(|r, n| match (r.method.as_str(), r.path.as_str()) {
-        ("POST", "/videos") => json(serde_json::json!({ "id": "video_1", "status": "queued" })),
-        ("GET", "/videos/video_1") if n < 3 => json(serde_json::json!({ "id": "video_1", "status": "in_progress", "progress": 40 })),
-        ("GET", "/videos/video_1") => json(serde_json::json!({ "id": "video_1", "status": "completed" })),
-        ("GET", "/videos/video_1/content") => (200, MP4.to_vec()),
-        _ => (404, b"{}".to_vec()),
-    }));
-    let mut said = Vec::new();
-    let out = generate(&provider(ProviderKind::Openai, &base), &req(Kind::Video), &mut |s: &str| said.push(s.to_string())).unwrap();
-    assert_eq!((out.len(), out[0].ext.as_str()), (1, "mp4"));
-    assert!(said.iter().any(|s| s.contains("40%")));
-    let body = seen.lock().unwrap()[0].json();
-    assert_eq!((body["seconds"].as_str(), body["size"].as_str()), (Some("8"), Some("1280x720")));
-}
-
-#[test]
-fn sora_failure_is_reported() {
-    let (base, _) = serve(Box::new(|r, _| match r.method.as_str() {
-        "POST" => json(serde_json::json!({ "id": "v" })),
-        _ => json(serde_json::json!({ "status": "failed", "error": { "code": "x", "message": "moderation blocked it" } })),
-    }));
-    let e = generate(&provider(ProviderKind::Openai, &base), &req(Kind::Video), &mut quiet()).unwrap_err();
-    assert!(e.to_string().contains("moderation blocked it"), "{e}");
+fn openai_video_explains_that_sora_was_retired() {
+    let p = provider(ProviderKind::Openai, "http://127.0.0.1:9");
+    assert!(!ProviderKind::Openai.does_video());
+    let e = generate(&p, &req(Kind::Video), &mut quiet()).unwrap_err().to_string();
+    assert!(e.contains("retired") && e.contains("Google"), "{e}");
 }
 
 #[test]
