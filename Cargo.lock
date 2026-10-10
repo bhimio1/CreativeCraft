@@ -972,6 +972,7 @@ dependencies = [
  "creativecraft-mcp",
  "creativecraft-platform",
  "creativecraft-stock",
+ "image",
  "log",
  "serde",
  "serde_json",

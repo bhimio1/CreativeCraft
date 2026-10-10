@@ -127,9 +127,12 @@ they should only generate what you asked for.
 <projects>/Generated/2026-10-09/a-lighthouse-on-a-cliff-at-dusk-103012.png.json
 ```
 
-Videos show a still in the gallery when [ffmpeg](https://ffmpeg.org) is installed: CreativeCraft
-asks it for one frame and keeps it in `.creativecraft/thumbs/` in the projects folder (not
-synced). Without ffmpeg, videos show a play symbol.
+Videos show a still in the gallery. CreativeCraft has no video decoder of its own, so it asks, in
+order: [ffmpeg](https://ffmpeg.org) whenever it's installed; for a video made from a picture, that
+picture (its first frame); macOS Quick Look; the video thumbnailer a Linux desktop registers
+(`/usr/share/thumbnailers`, e.g. ffmpegthumbnailer or Totem's). Stills are kept in
+`.creativecraft/thumbs/` in the projects folder (not synced). Without any of these (Windows
+without ffmpeg), videos show a play symbol and the gallery suggests installing ffmpeg.
 
 The `.json` beside each file records the prompt, what to avoid, the service, the model, the
 shape, the seed and when it was made (UTC). Right-click a result on the Generate page to **Use this prompt**, **Start from this**, or **Move

@@ -46,6 +46,8 @@ enum Thumb {
 }
 
 pub(crate) struct GenerateState {
+    /// Whether ffmpeg is installed (looked up once), for the video-preview hint.
+    has_ffmpeg: Option<bool>,
     /// Debug builds: open a provider's details for screenshots.
     #[cfg(debug_assertions)]
     pub(crate) debug_open: Option<String>,
@@ -87,6 +89,7 @@ impl Default for GenerateState {
     fn default() -> GenerateState {
         let (tx, rx) = channel();
         GenerateState {
+            has_ffmpeg: None,
             #[cfg(debug_assertions)]
             debug_open: None,
             kind: Kind::Image,
@@ -590,6 +593,18 @@ impl CreativeCraftApp {
                 }
             });
         });
+        // a video without a preview: say how to get them
+        let unpreviewed = self.generate.items.iter().any(|i| i.video && matches!(self.generate.thumbs.get(&i.path), Some(Thumb::Failed)));
+        if unpreviewed && !*self.generate.has_ffmpeg.get_or_insert_with(|| creativecraft_platform::find_on_path("ffmpeg").is_some()) {
+            let how = if cfg!(windows) {
+                "winget install ffmpeg"
+            } else if cfg!(target_os = "macos") {
+                "brew install ffmpeg"
+            } else {
+                "your package manager"
+            };
+            ui.label(RichText::new(format!("Install ffmpeg to see previews of videos ({how}).")).size(12.0).color(t.muted));
+        }
         ui.add_space(8.0);
         if self.generate.items.is_empty() {
             ui.label(RichText::new("What you make appears here, and in Generated/ in your projects folder.").color(t.muted));

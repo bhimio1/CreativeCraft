@@ -29,7 +29,8 @@
 - [x] AI generation: start from a picture (edit, restyle, image-to-video) on every service; stop a running job (and the job on services that allow it)
 - [x] AI generation: video stills in the gallery through the user's own ffmpeg, when installed; Stock → "Generate from this"
 - [x] AI generation: inpainting with a painted mask (OpenAI, Replicate, fal, ComfyUI, Stable Diffusion WebUI)
-- [ ] AI generation: a built-in frame reader for video stills without ffmpeg
+- [x] AI generation: video stills without ffmpeg too: the starting picture, macOS Quick Look, Linux desktop thumbnailers
+- [ ] AI generation: video stills on Windows without ffmpeg (needs the Shell thumbnail API, i.e. unsafe code)
 - [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
 - [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)

@@ -216,10 +216,50 @@ pub fn trash_generated(projects: &Path, file: &Path) -> Result<String, EngineErr
     Ok(format!("Moved {} to the trash", rel.display()))
 }
 
-/// A still from a video, for the gallery: one frame taken by the user's own `ffmpeg` (CreativeCraft
-/// has no video decoder of its own) and cached as a PNG under `<projects>/.creativecraft/thumbs/`,
-/// which never syncs. `None` when ffmpeg isn't installed or can't read the file.
+/// What can make a still from a video on this computer.
+#[derive(Debug, Clone, Default)]
+pub struct StillTools {
+    /// The user's `ffmpeg`: always first when installed.
+    pub ffmpeg: Option<PathBuf>,
+    /// macOS Quick Look's `qlmanage`.
+    pub quicklook: Option<PathBuf>,
+    /// Folders with freedesktop `.thumbnailer` files (Linux desktops register their video
+    /// thumbnailers there).
+    pub thumbnailer_dirs: Vec<PathBuf>,
+}
+
+impl StillTools {
+    /// What this computer has.
+    pub fn find() -> StillTools {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if cfg!(all(unix, not(target_os = "macos"))) {
+            if let Some(home) =
+                std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            {
+                dirs.push(home.join("thumbnailers"));
+            }
+            let data = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+            dirs.extend(data.split(':').filter(|d| !d.is_empty()).map(|d| PathBuf::from(d).join("thumbnailers")));
+            // the host's, seen from inside Flatpak
+            dirs.push(PathBuf::from("/run/host/usr/share/thumbnailers"));
+        }
+        StillTools {
+            ffmpeg: creativecraft_platform::find_on_path("ffmpeg"),
+            quicklook: if cfg!(target_os = "macos") { creativecraft_platform::find_on_path("qlmanage") } else { None },
+            thumbnailer_dirs: dirs,
+        }
+    }
+}
+
+/// A still from a video, for the gallery, cached as a PNG under `<projects>/.creativecraft/thumbs/`
+/// (never synced). CreativeCraft can't decode video itself, so in order: the user's `ffmpeg` when
+/// installed; the picture an image-to-video started from (its first frame); macOS Quick Look;
+/// the video thumbnailer a Linux desktop registered. `None` when none of them can.
 pub fn video_still(projects: &Path, video: &Path) -> Option<PathBuf> {
+    video_still_with(projects, video, &StillTools::find())
+}
+
+pub fn video_still_with(projects: &Path, video: &Path, tools: &StillTools) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
     let meta = std::fs::metadata(video).ok()?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -229,21 +269,115 @@ pub fn video_still(projects: &Path, video: &Path) -> Option<PathBuf> {
     if out.is_file() {
         return Some(out);
     }
-    let ffmpeg = creativecraft_platform::find_on_path("ffmpeg")?;
     std::fs::create_dir_all(&dir).ok()?;
-    let tmp = out.with_extension("part.png");
-    let mut cmd = creativecraft_platform::HostCommand::new(ffmpeg);
-    // a frame half a second in (past a fade from black), 384 px wide
-    cmd.args(["-v", "error", "-y", "-ss", "0.5", "-i"]).arg(video).args(["-frames:v", "1", "-vf", "scale=384:-2"]).arg(&tmp);
-    let mut std_cmd = cmd.into_std();
-    std_cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    let ok = std_cmd.status().is_ok_and(|s| s.success()) && tmp.is_file();
-    if !ok {
+    let tmp = dir.join(format!("{:016x}.part.png", h.finish()));
+    let made = tools.ffmpeg.as_ref().is_some_and(|f| ffmpeg_still(f, video, &tmp))
+        || poster_still(projects, video, &tmp)
+        || tools.quicklook.as_ref().is_some_and(|q| quicklook_still(q, video, &dir, &tmp))
+        || thumbnailer_for(&tools.thumbnailer_dirs, video).is_some_and(|exec| thumbnailer_still(&exec, video, &tmp));
+    if !made || !tmp.is_file() {
         let _ = std::fs::remove_file(&tmp);
         return None;
     }
     std::fs::rename(&tmp, &out).ok()?;
     Some(out)
+}
+
+const STILL_PX: u32 = 384;
+
+fn run_quietly(cmd: creativecraft_platform::HostCommand) -> bool {
+    let mut c = cmd.into_std();
+    c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    c.status().is_ok_and(|s| s.success())
+}
+
+fn ffmpeg_still(ffmpeg: &Path, video: &Path, out: &Path) -> bool {
+    let mut cmd = creativecraft_platform::HostCommand::new(ffmpeg);
+    // a frame half a second in (past a fade from black)
+    cmd.args(["-v", "error", "-y", "-ss", "0.5", "-i"]).arg(video).args(["-frames:v", "1", "-vf", &format!("scale={STILL_PX}:-2")]).arg(out);
+    run_quietly(cmd) && out.is_file()
+}
+
+/// An image-to-video's first frame is the picture it started from (named in its sidecar).
+fn poster_still(projects: &Path, video: &Path, out: &Path) -> bool {
+    let side: Option<Value> = std::fs::read(sidecar_path(video)).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    let Some(first) = side.as_ref().and_then(|s| s.pointer("/started_from/0")).and_then(Value::as_str) else { return false };
+    let path = if Path::new(first).is_relative() { projects.join(first) } else { PathBuf::from(first) };
+    let Ok(img) = image::open(&path) else { return false };
+    img.thumbnail(STILL_PX, STILL_PX).save_with_format(out, image::ImageFormat::Png).is_ok()
+}
+
+/// `qlmanage -t -s <px> -o <dir> <video>` writes `<dir>/<video name>.png`.
+fn quicklook_still(qlmanage: &Path, video: &Path, dir: &Path, out: &Path) -> bool {
+    let mut cmd = creativecraft_platform::HostCommand::new(qlmanage);
+    cmd.args(["-t", "-s", &STILL_PX.to_string(), "-o"]).arg(dir).arg(video);
+    let Some(name) = video.file_name() else { return false };
+    let mut made = name.to_os_string();
+    made.push(".png");
+    run_quietly(cmd) && std::fs::rename(dir.join(made), out).is_ok()
+}
+
+/// The media type freedesktop thumbnailers list for a video file.
+fn video_mime(video: &Path) -> Option<&'static str> {
+    match video.extension()?.to_string_lossy().to_ascii_lowercase().as_str() {
+        "mp4" | "m4v" => Some("video/mp4"),
+        "webm" => Some("video/webm"),
+        "mov" => Some("video/quicktime"),
+        "mkv" => Some("video/x-matroska"),
+        _ => None,
+    }
+}
+
+/// The `Exec` line of the first installed thumbnailer (its `TryExec` program on PATH) that lists
+/// the video's type.
+pub(crate) fn thumbnailer_for(dirs: &[PathBuf], video: &Path) -> Option<String> {
+    let mime = video_mime(video)?;
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "thumbnailer")).collect();
+        files.sort();
+        for f in files {
+            let Ok(text) = std::fs::read_to_string(&f) else { continue };
+            let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(k).and_then(|r| r.strip_prefix('='))).map(str::trim);
+            let lists_it = field("MimeType").is_some_and(|m| m.split(';').any(|t| t.trim() == mime));
+            let exec = field("Exec").filter(|e| !e.is_empty());
+            let program = field("TryExec").or_else(|| exec.and_then(|e| e.split_whitespace().next()));
+            if lists_it
+                && let Some(exec) = exec
+                && program.is_some_and(|p| creativecraft_platform::find_on_path(p).is_some())
+            {
+                return Some(exec.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Run a thumbnailer's `Exec` line: `%i` input path, `%u` input URI, `%o` output, `%s` size.
+fn thumbnailer_still(exec: &str, video: &Path, out: &Path) -> bool {
+    let mut words = exec.split_whitespace();
+    let Some(program) = words.next().and_then(creativecraft_platform::find_on_path) else { return false };
+    let mut cmd = creativecraft_platform::HostCommand::new(program);
+    for w in words {
+        match w {
+            "%i" => {
+                cmd.arg(video);
+            }
+            "%u" => {
+                cmd.arg(format!("file://{}", video.display()));
+            }
+            "%o" => {
+                cmd.arg(out);
+            }
+            "%s" => {
+                cmd.arg(STILL_PX.to_string());
+            }
+            other => {
+                cmd.arg(other);
+            }
+        }
+    }
+    run_quietly(cmd) && out.is_file()
 }
 
 /// Starting pictures an agent gives must be files inside the projects folder (relative paths are
@@ -417,17 +551,53 @@ mod tests {
     }
 
     #[test]
-    fn video_stills_need_ffmpeg_and_are_cached() {
+    fn video_stills_fall_back_from_ffmpeg_to_the_starting_picture_to_a_thumbnailer() {
         let root = std::env::temp_dir().join(format!("cc-gen-still-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(root.join("art")).unwrap();
+        let none = StillTools::default();
+        // nothing can read it: no still, and nothing half-written left behind
         let bogus = root.join("broken.mp4");
         std::fs::write(&bogus, b"not a video").unwrap();
-        // ffmpeg (if installed) can't read it, and nothing half-written is left behind
-        assert!(video_still(&root, &bogus).is_none());
-        let thumbs = root.join(".creativecraft/thumbs");
-        assert!(std::fs::read_dir(&thumbs).map_or(true, |d| d.count() == 0));
-        assert!(video_still(&root, &root.join("missing.mp4")).is_none());
+        assert!(video_still_with(&root, &bogus, &none).is_none());
+        assert!(std::fs::read_dir(root.join(".creativecraft/thumbs")).map_or(true, |d| d.count() == 0));
+        assert!(video_still_with(&root, &root.join("missing.mp4"), &none).is_none());
+
+        // an image-to-video: its starting picture, named in the sidecar, stands in
+        image::RgbImage::from_pixel(800, 400, image::Rgb([10, 200, 30])).save(root.join("art/start.png")).unwrap();
+        let clip = root.join("clip.mp4");
+        std::fs::write(&clip, b"video").unwrap();
+        std::fs::write(sidecar_path(&clip), r#"{"started_from":["art/start.png"]}"#).unwrap();
+        let still = video_still_with(&root, &clip, &none).unwrap();
+        let img = image::open(&still).unwrap();
+        assert_eq!((img.width(), img.height()), (384, 192));
+        // cached: found again without any tool
+        assert_eq!(video_still_with(&root, &clip, &none).unwrap(), still);
+
+        #[cfg(unix)]
+        {
+            // a desktop thumbnailer, as Linux desktops register them
+            use std::os::unix::fs::PermissionsExt;
+            let bin = root.join("bin");
+            let thumbs = root.join("thumbnailers");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::create_dir_all(&thumbs).unwrap();
+            let script = bin.join("fake-video-thumbnailer");
+            std::fs::write(&script, format!("#!/bin/sh\n# -i in -o out -s size\ncp '{}' \"$4\"\n", root.join("art/start.png").display())).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(thumbs.join("other.thumbnailer"), "[Thumbnailer Entry]\nExec=nothing %i %o\nMimeType=application/pdf;\n").unwrap();
+            std::fs::write(
+                thumbs.join("video.thumbnailer"),
+                format!("[Thumbnailer Entry]\nTryExec={0}\nExec={0} -i %i -o %o -s %s\nMimeType=video/webm;video/mp4;\n", script.display()),
+            )
+            .unwrap();
+            let tools = StillTools { thumbnailer_dirs: vec![thumbs], ..StillTools::default() };
+            assert!(thumbnailer_for(&tools.thumbnailer_dirs, &bogus).is_some());
+            assert!(thumbnailer_for(&tools.thumbnailer_dirs, &root.join("x.avi")).is_none(), "not a type it lists");
+            let plain = root.join("plain.mp4");
+            std::fs::write(&plain, b"video").unwrap();
+            assert!(video_still_with(&root, &plain, &tools).is_some());
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
