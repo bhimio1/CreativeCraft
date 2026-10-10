@@ -56,6 +56,9 @@ pub struct Settings {
     pub app_sources: BTreeMap<String, Source>,
     /// Play the short start-up animation when the window opens.
     pub intro_animation: bool,
+    /// Agents work in apps' visible windows (live mode) rather than headless, so the user can
+    /// watch and take over.
+    pub show_app_windows: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +75,7 @@ impl Default for Settings {
             appearance: Appearance::System,
             app_sources: BTreeMap::new(),
             intro_animation: true,
+            show_app_windows: true,
         }
     }
 }

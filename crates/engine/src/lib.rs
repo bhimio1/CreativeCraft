@@ -5,6 +5,7 @@
 //! there is exactly one implementation of each action.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+mod live;
 pub mod projects;
 mod report;
 mod settings;
@@ -19,7 +20,7 @@ use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, Goo
 use creativecraft_install::{HubDirs, InstallError, Installer, Progress, Status};
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::process::{Child, Stdio};
+use std::process::Child;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -39,6 +40,8 @@ pub enum EngineError {
     NoHome,
     #[error("{0}")]
     Agent(#[from] creativecraft_agent::AgentError),
+    #[error("{0}")]
+    Live(String),
 }
 
 /// Everything the hub can do. Ids (`app.install`, …) are stable: the CLI and docs use them.
@@ -244,17 +247,6 @@ impl Session {
         Ok(sync::preview(&self.settings.projects_dir, store.as_mut(), &self.settings.device_name)?)
     }
 
-    /// Start an MCP server for a catalog app or a user-configured one.
-    pub fn spawn_mcp(&self, id: &str) -> Result<Child, EngineError> {
-        if let Some(c) = self.settings.custom_mcp.iter().find(|c| c.id == id) {
-            let mut cmd = creativecraft_platform::HostCommand::new(&c.command);
-            cmd.args(&c.args);
-            return Ok(cmd.into_std().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?);
-        }
-        let app = self.app(id)?;
-        Ok(self.installer.spawn_mcp(&app)?)
-    }
-
     /// The catalog with live status, as JSON (for the agent and `creativecraft-cli list --json`).
     pub fn apps_json(&self) -> Value {
         let mut out: Vec<Value> = self
@@ -271,6 +263,7 @@ impl Session {
                     "id": a.id, "name": a.name, "category": a.category, "summary": a.summary,
                     "status": status, "version": version,
                     "mcp": a.has_mcp() && matches!(a.kind, Kind::Release) && status == "installed",
+                    "window": a.live.is_some(),
                     "installable_by_hub": a.kind == Kind::Release, "license": a.license,
                 })
             })
@@ -296,8 +289,8 @@ impl creativecraft_mcp::HubBackend for Session {
     fn sync(&mut self) -> Result<String, String> {
         self.execute(Command::Sync, &mut |_| {}).map_err(|e| e.to_string())
     }
-    fn spawn_mcp(&mut self, id: &str) -> Result<Child, String> {
-        Session::spawn_mcp(self, id).map_err(|e| e.to_string())
+    fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String> {
+        Session::spawn_mcp(self, id, window).map_err(|e| e.to_string())
     }
 }
 

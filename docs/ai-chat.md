@@ -15,6 +15,10 @@ There are two ways in:
   session and **End** stops it; double-click a tab to rename it. Closing a running tab asks first.
   Ctrl+C copies when text is selected and interrupts otherwise; drag to select, scroll for history.
 
+  When an agent uses an app, the app's window opens and the agent works in it, so you can watch
+  and take over (Settings → Assistant → "Show apps while agents work" turns that off). Files it
+  saves go to the projects folder.
+
   Every agent starts its own `creativecraft-cli mcp`, so each has its own app instances and two
   agents never edit the same open document. They do share the projects folder, so give them
   different files to work on.

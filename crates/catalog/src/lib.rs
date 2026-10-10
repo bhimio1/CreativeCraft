@@ -26,6 +26,19 @@ pub enum Kind {
     External,
 }
 
+/// Live mode: the desktop app runs with a localhost control channel and the CLI's MCP server
+/// drives that window, so the user sees the agent work and can take over. Placeholders:
+/// `{port}` (a free local port), `{token}` (a private token file for apps that authenticate the
+/// channel) and `{projects}` (the projects folder).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Live {
+    /// Arguments for the desktop app (`gui`).
+    pub gui: Vec<String>,
+    /// Arguments for the CLI that serve MCP against that window.
+    pub mcp: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppSpec {
@@ -55,9 +68,13 @@ pub struct AppSpec {
     /// Executable stem of the headless CLI inside the archive.
     #[serde(default)]
     pub cli: Option<String>,
-    /// Arguments that start the CLI as an MCP server on stdio.
+    /// Arguments that start the CLI as an MCP server on stdio, headless (no window).
+    /// `{projects}` becomes the projects folder.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
+    /// How to let an agent work in the app's visible window instead (see [`Live`]).
+    #[serde(default)]
+    pub live: Option<Live>,
 
     // kind = "external"
     #[serde(default)]
@@ -112,6 +129,14 @@ impl AppSpec {
         }
         if self.mcp.is_some() && self.cli.is_none() {
             return bad("mcp needs a cli executable to run");
+        }
+        if let Some(live) = &self.live {
+            if self.gui.is_none() || self.cli.is_none() {
+                return bad("live needs both a gui and a cli executable");
+            }
+            if !live.gui.iter().any(|a| a.contains("{port}")) || !live.mcp.iter().any(|a| a.contains("{port}")) {
+                return bad("live.gui and live.mcp must both use {port}");
+            }
         }
         Ok(())
     }

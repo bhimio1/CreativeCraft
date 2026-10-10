@@ -13,14 +13,17 @@ pub trait HubBackend {
     fn launch(&mut self, id: &str, files: &[String]) -> Result<String, String>;
     /// Run a cloud sync pass; returns its summary.
     fn sync(&mut self) -> Result<String, String>;
-    /// Start `id`'s MCP server process (stdio piped).
-    fn spawn_mcp(&mut self, id: &str) -> Result<Child, String>;
+    /// Start `id`'s MCP server process (stdio piped). `window`: drive the app's visible window
+    /// where the app supports it (`None`: the user's default).
+    fn spawn_mcp(&mut self, id: &str, window: Option<bool>) -> Result<Child, String>;
 }
 
 /// One running app automation server. An app can have several, each its own process with its
 /// own documents: the first is named like the app (`photocraft`), the others `photocraft-2`, ….
 struct Instance {
     app: String,
+    /// Asked for the app's window (`None`: the user's default).
+    window: Option<bool>,
     client: Client,
     /// Its tools, un-namespaced.
     tools: Vec<Value>,
@@ -41,16 +44,20 @@ fn text_result(text: impl Into<String>, is_error: bool) -> Value {
 
 fn hub_tools() -> Vec<Value> {
     let id_arg = json!({ "type": "object", "properties": { "app": { "type": "string", "description": "App id from hub_list_apps, e.g. \"photocraft\"" } }, "required": ["app"] });
+    let app_window_arg = json!({ "type": "object", "properties": {
+        "app": { "type": "string", "description": "App id from hub_list_apps, e.g. \"photocraft\"" },
+        "window": { "type": "boolean", "description": "Work in the app's visible window (true) or headless (false). Omit to use the user's setting." }
+    }, "required": ["app"] });
     vec![
         json!({ "name": "hub_list_apps", "description": "List every app the hub knows: id, name, category, install status and whether it can be driven over MCP.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "hub_install_app", "description": "Install an app, or update it to its latest release.", "inputSchema": id_arg }),
         json!({ "name": "hub_launch_app", "description": "Open a window of an app for the user, optionally with files. Each call opens a new window.", "inputSchema": { "type": "object", "properties": { "app": { "type": "string" }, "files": { "type": "array", "items": { "type": "string" } } }, "required": ["app"] } }),
         json!({ "name": "hub_sync_projects", "description": "Sync the user's projects folder with their cloud storage now. Never overwrites: conflicting edits are kept side by side.", "inputSchema": { "type": "object", "properties": {} } }),
-        json!({ "name": "app_tools", "description": "Start an installed app's automation (if needed) and list its tools. Afterwards they are also callable directly as `<app>__<tool>`. `app` may also be an instance id from app_open_instance.", "inputSchema": id_arg }),
+        json!({ "name": "app_tools", "description": "Start an installed app's automation (if needed) and list its tools. Afterwards they are also callable directly as `<app>__<tool>`. `app` may also be an instance id from app_open_instance. Apps with \"window\": true in hub_list_apps open their window so the user can watch; save files with paths relative to the projects folder.", "inputSchema": app_window_arg.clone() }),
         json!({ "name": "app_call", "description": "Call one of an app's tools (see app_tools). `app` may be an app id or an instance id.", "inputSchema": { "type": "object", "properties": { "app": { "type": "string" }, "tool": { "type": "string" }, "arguments": { "type": "object" } }, "required": ["app", "tool"] } }),
-        json!({ "name": "app_open_instance", "description": "Start another, independent instance of an app's automation, with its own documents and state, to work on several things at once. Returns the instance id (e.g. \"photocraft-2\"); call its tools as `<instance>__<tool>`.", "inputSchema": id_arg }),
+        json!({ "name": "app_open_instance", "description": "Start another, independent instance of an app (its own window where the app has one), with its own documents and state, to work on several things at once. Returns the instance id (e.g. \"photocraft-2\"); call its tools as `<instance>__<tool>`.", "inputSchema": app_window_arg }),
         json!({ "name": "app_instances", "description": "List the running app instances: instance id, app id and tool count.", "inputSchema": { "type": "object", "properties": {} } }),
-        json!({ "name": "app_close_instance", "description": "Stop one app instance. Anything unsaved in that instance is lost, so save first.", "inputSchema": { "type": "object", "properties": { "instance": { "type": "string", "description": "Instance id from app_open_instance or app_instances" } }, "required": ["instance"] } }),
+        json!({ "name": "app_close_instance", "description": "Stop one app instance's automation. Headless: anything unsaved is lost, so save first. A visible window stays open for the user.", "inputSchema": { "type": "object", "properties": { "instance": { "type": "string", "description": "Instance id from app_open_instance or app_instances" } }, "required": ["instance"] } }),
     ]
 }
 
@@ -135,18 +142,18 @@ impl<B: HubBackend> HubServer<B> {
         tools
     }
 
-    fn start_instance(&mut self, name: &str, app: &str) -> Result<(), String> {
-        let child = self.backend.spawn_mcp(app)?;
+    fn start_instance(&mut self, name: &str, app: &str, window: Option<bool>) -> Result<(), String> {
+        let child = self.backend.spawn_mcp(app, window)?;
         let mut client = Client::start(child).map_err(|e| format!("{name}: {e}"))?;
         let tools = client.list_tools().map_err(|e| format!("{name}: {e}"))?;
-        self.apps.insert(name.to_string(), Instance { app: app.to_string(), client, tools });
+        self.apps.insert(name.to_string(), Instance { app: app.to_string(), window, client, tools });
         self.pending.push(json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }));
         Ok(())
     }
 
     /// The instance called `name`, starting it if it's an app's first instance. An extra instance
     /// that stopped is not restarted silently: its documents are gone, and the agent should know.
-    fn ensure_app(&mut self, name: &str) -> Result<&mut Instance, String> {
+    fn ensure_app(&mut self, name: &str, window: Option<bool>) -> Result<&mut Instance, String> {
         let alive = self.apps.get_mut(name).map(|i| (i.client.is_running(), i.app.clone()));
         match alive {
             Some((true, _)) => {}
@@ -156,15 +163,16 @@ impl<B: HubBackend> HubServer<B> {
                 return Err(format!("instance {name} has stopped; open a new one with app_open_instance"));
             }
             _ => {
-                self.apps.remove(name);
-                self.start_instance(name, name)?;
+                // a restart keeps the window choice it was first started with
+                let window = self.apps.remove(name).map_or(window, |i| i.window);
+                self.start_instance(name, name, window)?;
             }
         }
         self.apps.get_mut(name).ok_or_else(|| format!("{name} is not running"))
     }
 
     /// Start a new instance of `app`: `app` itself if it isn't running, else `app-2`, `app-3`, ….
-    fn open_instance(&mut self, app: &str) -> Result<String, String> {
+    fn open_instance(&mut self, app: &str, window: Option<bool>) -> Result<String, String> {
         if let Some(inst) = self.apps.get(app)
             && inst.app != app
         {
@@ -172,12 +180,13 @@ impl<B: HubBackend> HubServer<B> {
         }
         let name = next_instance_name(app, |n| self.apps.get_mut(n).is_some_and(|i| i.client.is_running()));
         self.apps.remove(&name);
-        self.start_instance(&name, app)?;
+        self.start_instance(&name, app, window)?;
         Ok(name)
     }
 
     fn call(&mut self, name: &str, args: Value) -> Value {
         let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let window = args.get("window").and_then(Value::as_bool);
         let done = |r: Result<String, String>| match r {
             Ok(t) => text_result(t, false),
             Err(e) => text_result(e, true),
@@ -193,7 +202,7 @@ impl<B: HubBackend> HubServer<B> {
             "hub_sync_projects" => done(self.backend.sync()),
             "app_tools" => {
                 let app = s("app");
-                match self.ensure_app(&app) {
+                match self.ensure_app(&app, window) {
                     Ok(Instance { tools, .. }) => {
                         let names: Vec<Value> = tools.iter().map(|t| json!({ "name": namespaced(&app, t.get("name").and_then(Value::as_str).unwrap_or("")), "description": t.get("description").cloned().unwrap_or(Value::Null) })).collect();
                         text_result(Value::Array(names).to_string(), false)
@@ -205,7 +214,7 @@ impl<B: HubBackend> HubServer<B> {
                 let inner = args.get("arguments").cloned().unwrap_or(json!({}));
                 self.forward(&s("app"), &s("tool"), inner)
             }
-            "app_open_instance" => match self.open_instance(&s("app")) {
+            "app_open_instance" => match self.open_instance(&s("app"), window) {
                 Ok(name) => {
                     let n = self.apps.get(&name).map_or(0, |i| i.tools.len());
                     text_result(json!({ "instance": name, "tools": n, "call_as": format!("{name}__<tool>") }).to_string(), false)
@@ -240,7 +249,7 @@ impl<B: HubBackend> HubServer<B> {
     }
 
     fn forward(&mut self, app: &str, tool: &str, args: Value) -> Value {
-        match self.ensure_app(app) {
+        match self.ensure_app(app, None) {
             Ok(Instance { client, .. }) => match client.call_tool(tool, args) {
                 Ok(r) => r,
                 Err(e) => text_result(format!("{app}: {e}"), true),
@@ -276,7 +285,7 @@ mod tests {
         fn sync(&mut self) -> Result<String, String> {
             Ok("Everything is up to date".into())
         }
-        fn spawn_mcp(&mut self, id: &str) -> Result<Child, String> {
+        fn spawn_mcp(&mut self, id: &str, _: Option<bool>) -> Result<Child, String> {
             Err(format!("{id} has no MCP server"))
         }
     }
@@ -333,7 +342,7 @@ mod tests {
         fn sync(&mut self) -> Result<String, String> {
             Err("no".into())
         }
-        fn spawn_mcp(&mut self, _: &str) -> Result<Child, String> {
+        fn spawn_mcp(&mut self, _: &str, _: Option<bool>) -> Result<Child, String> {
             let script = r#"read l; echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fake"}}}'; read l; read l; echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"layer_add","description":"Add a layer","inputSchema":{"type":"object"}}]}}'; cat > /dev/null"#;
             std::process::Command::new("sh")
                 .args(["-c", script])

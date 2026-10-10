@@ -256,14 +256,28 @@ impl Installer {
         }
     }
 
-    /// Start `<cli> <mcp args…>` with piped stdio, ready for an MCP client.
-    pub fn spawn_mcp(&self, app: &AppSpec) -> Result<Child, InstallError> {
+    /// Start `<cli> <args…>` (the app's MCP arguments, placeholders already filled in) with piped
+    /// stdio, ready for an MCP client.
+    pub fn spawn_mcp(&self, app: &AppSpec, args: &[String]) -> Result<Child, InstallError> {
         let i = self.registry.get(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
         let cli = i.cli.as_ref().ok_or_else(|| InstallError::MissingExe { app: app.name.clone(), exe: "cli".into() })?;
-        let args = app.mcp.clone().unwrap_or_default();
         let mut c = HostCommand::new(cli);
         c.args(args);
         Ok(c.into_std().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?)
+    }
+
+    /// Start the desktop app with `args` (e.g. a control port for live mode). Unlike [`Self::launch`]
+    /// the process is returned, so the caller can tell whether it exited during start-up. The
+    /// window stays open after the hub quits.
+    pub fn launch_with_args(&self, app: &AppSpec, args: &[String]) -> Result<Child, InstallError> {
+        let i = self.registry.get(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
+        let gui = i.gui.as_ref().ok_or_else(|| InstallError::MissingExe { app: app.name.clone(), exe: "gui".into() })?;
+        let mut c = HostCommand::new(gui);
+        c.args(args).detached();
+        if let Some(dir) = gui.parent() {
+            c.current_dir(dir);
+        }
+        Ok(c.into_std().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?)
     }
 
     /// Open the official download page of an external app in the browser.
@@ -285,7 +299,11 @@ fn spawn_detached(exe: &Path, files: &[PathBuf]) -> Result<(), InstallError> {
     if let Some(dir) = exe.parent() {
         c.current_dir(dir);
     }
-    c.into_std().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    let mut child = c.into_std().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    // reap it whenever the user closes it, so it doesn't linger as a zombie while the hub runs
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }
 

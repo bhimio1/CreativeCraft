@@ -347,6 +347,15 @@ impl CreativeCraftApp {
                     theme::toggle(ui, &mut a.auto_approve);
                 },
             );
+            theme::row_divider(ui);
+            theme::setting_row(
+                ui,
+                "Show apps while agents work",
+                "Agents open the app's window and work in it, so you can watch and take over. Off: they work in the background, without windows.",
+                |ui| {
+                    theme::toggle(ui, &mut self.draft.show_app_windows);
+                },
+            );
         });
         if setup {
             self.run("Set up assistant", Command::SetupAgent);

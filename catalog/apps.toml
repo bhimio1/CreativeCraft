@@ -16,7 +16,11 @@
 # uses it to pick the app (and icon) for each file.
 #
 # `mcp` is the argument list that makes `cli` speak MCP (JSON-RPC 2.0, one message per line on
-# stdio). Every Craft app uses `<app>-cli mcp`. Extra MCP servers (for example a Blender add-on
+# stdio) headless, with no window; `{projects}` becomes the projects folder (PhotoCraft and PdfCraft
+# only read and write files beneath the folders they are given). `live` makes an agent work in the
+# app's visible window instead: `gui` starts the desktop app with a localhost control channel on
+# `{port}` (and a private `{token}` file where the app authenticates it), `mcp` connects the CLI's
+# MCP server to it. Arguments were checked against each app's latest release. Extra MCP servers (for example a Blender add-on
 # bridge) are added by the user in settings, not here.
 #
 # Descriptions say what an app does in generic terms: no third-party trademarks are used to
@@ -33,7 +37,8 @@ kind = "release"
 repo = "storytold/photocraft"
 gui = "photocraft"
 cli = "photocraft-cli"
-mcp = ["mcp"]
+mcp = ["mcp", "--automation-read-root", "{projects}", "--automation-write-root", "{projects}"]
+live = { gui = ["--control", "{port}", "--control-token-file", "{token}", "--automation-read-root", "{projects}", "--automation-write-root", "{projects}"], mcp = ["mcp", "--bridge", "127.0.0.1:{port}", "--control-token-file", "{token}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/photocraft"
 opens = ["pcraft", "psd", "psb", "png", "jpg", "jpeg", "webp", "tif", "tiff", "gif", "bmp", "tga", "qoi"]
@@ -47,7 +52,8 @@ kind = "release"
 repo = "storytold/vectorcraft"
 gui = "vectorcraft"
 cli = "vectorcraft-cli"
-mcp = ["mcp"]
+mcp = ["mcp", "--headless"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/vectorcraft"
 opens = ["vectorcraft", "svg"]
@@ -62,6 +68,7 @@ repo = "storytold/filmcraft"
 gui = "filmcraft"
 cli = "filmcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--bridge", "127.0.0.1:{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/filmcraft"
 opens = ["fcproj"]
@@ -76,6 +83,7 @@ repo = "storytold/lightcraft"
 gui = "lightcraft"
 cli = "lightcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/lightcraft"
 opens = ["dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2"]
@@ -89,7 +97,7 @@ kind = "release"
 repo = "storytold/pdfcraft"
 gui = "pdfcraft"
 cli = "pdfcraft-cli"
-mcp = ["mcp"] # needs a build with the `mcp` feature; the hub reports it if the binary lacks it
+mcp = ["mcp", "--root", "{projects}"] # needs a build with the `mcp` feature; the hub reports it if the binary lacks it
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/pdfcraft"
 opens = ["pdf"]
@@ -104,6 +112,7 @@ repo = "storytold/effectcraft"
 gui = "effectcraft"
 cli = "effectcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--bridge", "{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/effectcraft"
 opens = ["ecproj"]
@@ -118,6 +127,7 @@ repo = "storytold/designcraft"
 gui = "designcraft"
 cli = "designcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/designcraft"
 opens = ["designcraft"]
@@ -132,6 +142,7 @@ repo = "storytold/cadcraft"
 gui = "cadcraft"
 cli = "cadcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/cadcraft"
 opens = ["dxf", "dwg"]
@@ -146,6 +157,7 @@ repo = "storytold/soundcraft"
 gui = "soundcraft"
 cli = "soundcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/soundcraft"
 opens = ["scraft", "wav", "flac", "aif", "aiff", "mp3", "mid"]
@@ -160,6 +172,7 @@ repo = "storytold/wordcraft"
 gui = "wordcraft"
 cli = "wordcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/wordcraft"
 opens = ["docx", "odt", "rtf", "md"]
@@ -174,6 +187,7 @@ repo = "storytold/gridcraft"
 gui = "gridcraft"
 cli = "gridcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/gridcraft"
 opens = ["xlsx", "xlsm", "csv", "tsv"]
@@ -188,6 +202,7 @@ repo = "storytold/deckcraft"
 gui = "deckcraft"
 cli = "deckcraft-cli"
 mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "{port}"] }
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/deckcraft"
 opens = ["deckcraft", "pptx"]

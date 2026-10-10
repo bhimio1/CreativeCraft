@@ -85,6 +85,17 @@ Tools from app servers are re-exported as `<app>__<tool>`; the hub sends
 `notifications/tools/list_changed` when an app server starts so the host refreshes its tool list.
 `app_tools` / `app_call` give hosts that don't refresh a way in, too.
 
+**Windows (live mode).** By default an agent works in the app's visible window, so the user can
+watch and take over (Settings → Assistant → "Show apps while agents work"; tools take
+`window: true/false` to override). For an app with a catalog `live` entry the hub starts the
+desktop app with a localhost control channel on a free port (`--control {port}`, plus a private
+`{token}` file under `<config>/control/` for apps that authenticate it), waits until it listens,
+then starts `<app>-cli` with its bridge arguments (`--bridge`/`--connect`). Apps without one, and
+headless runs, use the `mcp` arguments. `{projects}` grants the projects folder to apps that only
+read and write beneath folders they are given (PhotoCraft's automation roots, PdfCraft's
+`--root`), so agents can open and save files there. Closing an instance stops the automation;
+the window stays open for the user.
+
 An app can run as several **instances**, each its own `<app>-cli mcp` process with its own
 documents: the first is named like the app, `app_open_instance` starts `photocraft-2`,
 `photocraft-3`, … whose tools are exported as `photocraft-2__<tool>`. `app_instances` lists them
