@@ -342,8 +342,24 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
             let (mut c, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 65536];
-            let _ = c.read(&mut buf);
+            // read the whole request (headers, then the body) before answering: Windows resets a
+            // connection closed with unread data, and the client would see the reset
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = c.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&got).to_ascii_lowercase();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let len = text.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                    if got.len() >= end + 4 + len {
+                        break;
+                    }
+                }
+            }
             // "iVBORw0KGgo=" is the PNG signature
             let body = r#"{"images":["iVBORw0KGgo="]}"#;
             let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
@@ -369,7 +385,9 @@ mod tests {
             mask: None,
         };
         let out = s.execute(crate::Command::Generate { request, provider: None }, &mut |_| {}).unwrap();
-        assert!(out.starts_with("Saved Generated/") && out.contains("a-red-kite-"), "{out}");
+        // paths use the system's separator
+        let shown = out.replace('\\', "/");
+        assert!(shown.starts_with("Saved Generated/") && shown.contains("a-red-kite-"), "{out}");
         let day = std::fs::read_dir(s.generated_dir()).unwrap().next().unwrap().unwrap().path();
         let mut names: Vec<String> = std::fs::read_dir(&day).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         names.sort();
@@ -424,7 +442,7 @@ mod tests {
         std::fs::write(root.join("mine.kra"), b"x").unwrap();
         assert!(trash_generated(&root, &root.join("mine.kra")).is_err(), "only generated files");
         let msg = trash_generated(&root, &day.join("a.png")).unwrap();
-        assert!(msg.contains("Generated/2026-10-10/a.png"), "{msg}");
+        assert!(msg.replace('\\', "/").contains("Generated/2026-10-10/a.png"), "{msg}");
         assert!(!day.join("a.png").exists() && !day.join("a.png.json").exists());
         let trashed: Vec<_> = walk(&root.join(".creativecraft/trash"));
         assert!(trashed.iter().any(|p| p.ends_with("Generated/2026-10-10/a.png")));
