@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 
 pub struct ChangeWatcher {
     root: PathBuf,
+    /// `root` with symlinks resolved: macOS reports events under it (`/private/var/…` for
+    /// `/var/…`), and so does any OS when the projects folder is reached through a link.
+    real_root: PathBuf,
     _watcher: notify::RecommendedWatcher,
     rx: Receiver<PathBuf>,
     rules: IgnoreRules,
@@ -39,7 +42,16 @@ impl ChangeWatcher {
         })
         .map_err(|e| CloudError::Config(format!("can't watch the projects folder: {e}")))?;
         watcher.watch(root, RecursiveMode::Recursive).map_err(|e| CloudError::Config(format!("can't watch the projects folder: {e}")))?;
-        Ok(ChangeWatcher { root: root.to_path_buf(), _watcher: watcher, rx, rules: crate::sync::ignore_rules(root), last_change: None, muted_until: None })
+        let real_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        Ok(ChangeWatcher {
+            root: root.to_path_buf(),
+            real_root,
+            _watcher: watcher,
+            rx,
+            rules: crate::sync::ignore_rules(root),
+            last_change: None,
+            muted_until: None,
+        })
     }
 
     /// Ignore changes for `d` from now (a sync is writing, or just wrote, files).
@@ -53,7 +65,7 @@ impl ChangeWatcher {
     fn drain(&mut self, now: Instant) {
         let muted = self.muted_until.is_some_and(|m| now < m);
         while let Ok(path) = self.rx.try_recv() {
-            let Ok(rel) = path.strip_prefix(&self.root) else { continue };
+            let Ok(rel) = path.strip_prefix(&self.root).or_else(|_| path.strip_prefix(&self.real_root)) else { continue };
             let rel = rel.to_string_lossy().replace('\\', "/");
             if rel.is_empty() {
                 continue;
@@ -101,6 +113,23 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         false
+    }
+
+    #[test]
+    fn events_under_the_resolved_path_count() {
+        // as macOS reports them for a folder reached through a link (/var → /private/var)
+        let root = std::env::temp_dir().join(format!("cc-watch-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mut w = ChangeWatcher::new(&root, || {}).unwrap();
+        w.real_root = PathBuf::from("/private/elsewhere");
+        let (tx, rx) = channel();
+        w.rx = rx;
+        tx.send(PathBuf::from("/private/elsewhere/poster.pcraft")).unwrap();
+        tx.send(PathBuf::from("/somewhere/else/x.pcraft")).unwrap();
+        let _ = w.poll(Duration::from_secs(3600));
+        assert!(w.pending(), "a change under the resolved path counts");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
