@@ -744,11 +744,11 @@ impl CreativeCraftApp {
                     theme::row_divider(ui);
                     let optional = matches!(p.kind, creativecraft_engine::generation::ProviderKind::OpenaiCompatible);
                     let desc = if optional {
-                        "If the server asks for one. Kept in secrets.json, readable only by you."
+                        format!("If the server asks for one. Kept in {}.", self.secrets_place)
                     } else {
-                        "From your own account. Kept in secrets.json, readable only by you; never shown to agents."
+                        format!("From your own account. Kept in {}; never shown to agents.", self.secrets_place)
                     };
-                    theme::setting_row(ui, "API key", desc, |ui| {
+                    theme::setting_row(ui, "API key", &desc, |ui| {
                         if let Some(url) = preset.as_ref().map(|x| x.key_url.clone()).filter(|u| !u.is_empty())
                             && ui.add(theme::secondary("Get a key")).clicked()
                         {

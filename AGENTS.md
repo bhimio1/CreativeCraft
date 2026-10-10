@@ -25,7 +25,8 @@ apps' architecture on purpose, so the same habits apply in every repo.
 8. **The chat never holds model credentials.** Backends are external agent CLIs with their own
    sign-in; CreativeCraft only passes them a prompt and an MCP config. Don't add API-key handling
    to the chat. The one exception is AI generation (`crates/generate`): the user brings their own
-   image/video service keys. They live only in `secrets.json` (0600), are never serialized to
+   image/video service keys. They live only in `creativecraft-secrets` (the OS keychain, else
+   `secrets.json` 0600), are never serialized to
    `settings.json`, are never shown to agents or put in tool results, and are redacted from
    errors.
 9. **Agents' tools are user-facing.** Hub MCP tool names, descriptions and results are part of the

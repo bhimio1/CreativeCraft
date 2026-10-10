@@ -149,6 +149,9 @@ pub struct Session {
     /// Stops the generation `Command::Generate` is running, from another thread (the CLI's
     /// Ctrl-C). Once used it stays set: it's for a process that ends after stopping.
     pub generation_stop: creativecraft_generate::Cancel,
+    /// Passwords, API keys and the Google token: the OS keychain, or a private file for portable
+    /// installs and computers without one.
+    pub secrets: creativecraft_secrets::Secrets,
 }
 
 impl Session {
@@ -162,13 +165,19 @@ impl Session {
             catalog.merge(Catalog::parse(&text)?);
         }
         let installer = Installer::open(dirs.clone())?;
-        let settings = Settings::load(&dirs.settings_file());
+        let secrets = if dirs.portable() {
+            creativecraft_secrets::Secrets::file_only(dirs.secrets_file())
+        } else {
+            creativecraft_secrets::Secrets::system(dirs.secrets_file())
+        };
+        migrate_google_token(&dirs, &secrets);
+        let settings = Settings::load_with(&dirs.settings_file(), &secrets);
         let marketplace = plugins::load_index(&dirs.data().join("marketplace").join("plugins.toml"));
-        Ok(Session { dirs, catalog, installer, settings, marketplace, generation_stop: Default::default() })
+        Ok(Session { dirs, catalog, installer, settings, marketplace, generation_stop: Default::default(), secrets })
     }
 
     pub fn save_settings(&self) -> Result<(), EngineError> {
-        Ok(self.settings.save(&self.dirs.settings_file())?)
+        Ok(self.settings.save_with(&self.dirs.settings_file(), &self.secrets)?)
     }
 
     pub fn app(&self, id: &str) -> Result<AppSpec, EngineError> {
@@ -200,12 +209,8 @@ impl Session {
         Ok(report::bug_report_url(Some(&app), version.as_deref()))
     }
 
-    fn token_file(&self) -> PathBuf {
-        self.dirs.config().join("google-token.json")
-    }
-
     pub fn google_signed_in(&self) -> bool {
-        self.token_file().is_file()
+        self.secrets.get(creativecraft_cloud::GOOGLE_TOKEN).is_some()
     }
 
     /// The configured cloud store, connected.
@@ -215,7 +220,7 @@ impl Session {
             CloudChoice::Folder { path } => Ok(Box::new(FolderStore::new(path.clone()))),
             CloudChoice::GoogleDrive { client_id, client_secret } => {
                 let client = GoogleClient { client_id: client_id.clone(), client_secret: client_secret.clone() };
-                Ok(Box::new(GoogleDrive::connect(client, self.token_file())?))
+                Ok(Box::new(GoogleDrive::connect(client, self.secrets.clone())?))
             }
             CloudChoice::WebDav { url, username, password } => Ok(Box::new(creativecraft_cloud::WebDavStore::new(url, username, password)?)),
             CloudChoice::S3 { endpoint, region, bucket, prefix, access_key, secret_key, path_style } => {
@@ -304,11 +309,11 @@ impl Session {
                     return Err(EngineError::CloudOff);
                 };
                 let client = GoogleClient { client_id: client_id.clone(), client_secret: client_secret.clone() };
-                GoogleDrive::sign_in(client, self.token_file())?;
+                GoogleDrive::sign_in(client, self.secrets.clone())?;
                 Ok("Signed in to Google Drive".into())
             }
             Command::SignOutGoogle => {
-                GoogleDrive::sign_out(&self.token_file())?;
+                GoogleDrive::sign_out(&self.secrets)?;
                 Ok("Signed out of Google Drive".into())
             }
             Command::SetupAgent => match self.settings.agent.backend {
@@ -379,6 +384,20 @@ impl Session {
     }
 }
 
+/// Older versions kept the Google token in `google-token.json`; move it to the secrets store
+/// (keychain), deleting the file only once the token reads back.
+fn migrate_google_token(dirs: &HubDirs, secrets: &creativecraft_secrets::Secrets) {
+    let old = dirs.config().join("google-token.json");
+    let Ok(text) = std::fs::read_to_string(&old) else { return };
+    let name = creativecraft_cloud::GOOGLE_TOKEN;
+    if secrets.get(name).is_none() && secrets.set(name, text.trim()).is_err() {
+        return;
+    }
+    if secrets.get(name).is_some() {
+        let _ = std::fs::remove_file(&old);
+    }
+}
+
 /// The agent's view of the session.
 impl creativecraft_mcp::HubBackend for Session {
     fn list_apps(&mut self) -> Value {
@@ -420,6 +439,21 @@ impl creativecraft_mcp::HubBackend for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_old_google_token_file_moves_into_the_secrets_store() {
+        let root = std::env::temp_dir().join(format!("creativecraft-token-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = HubDirs::under(&root);
+        std::fs::create_dir_all(dirs.config()).unwrap();
+        std::fs::write(dirs.config().join("google-token.json"), r#"{"access_token":"a","refresh_token":"r","expires_at":1}"#).unwrap();
+        let s = Session::open_at(dirs.clone()).unwrap();
+        assert!(s.google_signed_in());
+        assert!(!dirs.config().join("google-token.json").exists(), "the old file is gone");
+        assert!(!s.secrets.in_keychain(), "portable installs keep secrets in their folder");
+        assert!(std::fs::read_to_string(dirs.secrets_file()).unwrap().contains("refresh_token"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn fresh_session_lists_the_catalog_and_syncs_to_a_folder() {

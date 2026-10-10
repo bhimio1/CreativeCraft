@@ -1,5 +1,6 @@
 use creativecraft_agent::AgentSettings;
 use creativecraft_install::Source;
+use creativecraft_secrets::Secrets;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -80,29 +81,9 @@ fn generation_key(id: &str) -> String {
     format!("generate {id}")
 }
 
-/// `secrets.json` beside `settings.json`, readable only by the user.
+/// `secrets.json` beside `settings.json`: where secrets go when there's no keychain.
 fn secrets_path(settings: &Path) -> PathBuf {
     settings.with_file_name("secrets.json")
-}
-
-fn load_secrets(settings: &Path) -> BTreeMap<String, String> {
-    std::fs::read(secrets_path(settings)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
-}
-
-fn save_secrets(settings: &Path, secrets: &BTreeMap<String, String>) -> std::io::Result<()> {
-    let path = secrets_path(settings);
-    let tmp = path.with_extension("json.tmp");
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    let mut f = opts.open(&tmp)?;
-    std::io::Write::write_all(&mut f, &serde_json::to_vec_pretty(secrets).map_err(std::io::Error::other)?)?;
-    drop(f);
-    std::fs::rename(tmp, path)
 }
 
 /// Window colour theme.
@@ -176,18 +157,23 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Missing file → defaults. Environment overrides for the Google client make CI and packaging
-    /// easy: `CREATIVECRAFT_GOOGLE_CLIENT_ID` / `CREATIVECRAFT_GOOGLE_CLIENT_SECRET`.
+    /// [`Settings::load_with`] with secrets in the file beside `path`.
     pub fn load(path: &Path) -> Settings {
+        Settings::load_with(path, &Secrets::file_only(secrets_path(path)))
+    }
+
+    /// Missing file → defaults; passwords and keys from `secrets`. Environment overrides for the
+    /// Google client make CI and packaging easy: `CREATIVECRAFT_GOOGLE_CLIENT_ID` /
+    /// `CREATIVECRAFT_GOOGLE_CLIENT_SECRET`.
+    pub fn load_with(path: &Path, secrets: &Secrets) -> Settings {
         let mut s: Settings = std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let mut secrets = load_secrets(path);
         if let Some((key, value)) = s.cloud.secret_slot()
-            && let Some(secret) = secrets.remove(&key)
+            && let Some(secret) = secrets.get(&key)
         {
             *value = secret;
         }
         for p in &mut s.generation.providers {
-            if let Some(k) = secrets.remove(&generation_key(&p.id)) {
+            if let Some(k) = secrets.get(&generation_key(&p.id)) {
                 p.api_key = k;
             }
         }
@@ -199,30 +185,41 @@ impl Settings {
         s
     }
 
+    /// [`Settings::save_with`] with secrets in the file beside `path`.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        self.save_with(path, &Secrets::file_only(secrets_path(path)))
+    }
+
+    /// Write `settings.json`; passwords and keys go to `secrets` (the keychain, or the private
+    /// file), never `settings.json`. Only changed secrets are written: a keychain may ask the
+    /// user to allow each write.
+    pub fn save_with(&self, path: &Path, secrets: &Secrets) -> std::io::Result<()> {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        // passwords and API keys go to secrets.json; settings.json never contains them
-        let before = load_secrets(path);
-        let mut secrets = before.clone();
+        let put =
+            |name: &str, value: &str| -> std::io::Result<()> { if secrets.get(name).as_deref() != Some(value) { secrets.set(name, value) } else { Ok(()) } };
         let mut cloud = self.cloud.clone();
         if let Some((key, value)) = cloud.secret_slot()
             && !value.is_empty()
         {
-            secrets.insert(key, value.clone());
+            put(&key, value)?;
         }
         // a removed provider's key goes with it
-        secrets.retain(|k, _| !k.starts_with("generate ") || self.generation.providers.iter().any(|p| generation_key(&p.id) == *k));
-        for p in &self.generation.providers {
-            if p.api_key.trim().is_empty() {
-                secrets.remove(&generation_key(&p.id));
-            } else {
-                secrets.insert(generation_key(&p.id), p.api_key.trim().to_string());
+        for name in secrets.names() {
+            if name.starts_with("generate ") && !self.generation.providers.iter().any(|p| generation_key(&p.id) == name) {
+                secrets.remove(&name)?;
             }
         }
-        if secrets != before {
-            save_secrets(path, &secrets)?;
+        for p in &self.generation.providers {
+            let name = generation_key(&p.id);
+            if p.api_key.trim().is_empty() {
+                if secrets.get(&name).is_some() {
+                    secrets.remove(&name)?;
+                }
+            } else {
+                put(&name, p.api_key.trim())?;
+            }
         }
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?)?;

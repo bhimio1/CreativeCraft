@@ -143,6 +143,11 @@ impl CreativeCraftApp {
             theme::setting_row(ui, "Computer name", "Labels the copy kept from this computer when two edits conflict.", |ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.draft.device_name).desired_width(220.0));
             });
+            theme::row_divider(ui);
+            let place = self.secrets_place;
+            theme::setting_row(ui, "Passwords and keys", "Cloud passwords, AI service keys and your Google sign-in.", |ui| {
+                ui.label(RichText::new(format!("Kept in {place}")).size(13.0).color(theme::Tokens::get().muted));
+            });
         });
     }
 

@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 creativecraft-generate = { workspace = true }
+creativecraft-secrets = { workspace = true }
 creativecraft-stock = { workspace = true }
 creativecraft-marketplace = { workspace = true }
 creativecraft-platform = { workspace = true }

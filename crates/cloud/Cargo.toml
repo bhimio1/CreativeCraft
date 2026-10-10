@@ -11,6 +11,7 @@ description = "CreativeCraft L2: cloud saves: storage backends (Google Drive, an
 workspace = true
 
 [dependencies]
+creativecraft-secrets = { workspace = true }
 creativecraft-platform = { workspace = true }
 creativecraft-sync-plan = { workspace = true }
 serde = { workspace = true }

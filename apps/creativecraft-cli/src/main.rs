@@ -413,7 +413,11 @@ fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
                 p.api_key = key.trim().to_string();
             }
             s.save_settings()?;
-            out!("{}", if key.trim().is_empty() { "Key removed" } else { "Key saved (in secrets.json, readable only by you)" });
+            if key.trim().is_empty() {
+                out!("Key removed");
+            } else {
+                out!("Key saved in {}", s.secrets.place());
+            }
         }
         Some("remove") => {
             let id = arg(1, "id")?;

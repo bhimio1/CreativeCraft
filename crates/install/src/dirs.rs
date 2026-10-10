@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 pub struct HubDirs {
     data: PathBuf,
     config: PathBuf,
+    /// Everything under one folder (`CREATIVECRAFT_HOME`, tests): secrets stay in that folder too,
+    /// not the OS keychain.
+    portable: bool,
 }
 
 impl HubDirs {
@@ -13,11 +16,21 @@ impl HubDirs {
             return Some(HubDirs::under(Path::new(&home)));
         }
         let p = directories::ProjectDirs::from("org", "CreativeCraft", "CreativeCraft")?;
-        Some(HubDirs { data: p.data_dir().to_path_buf(), config: p.config_dir().to_path_buf() })
+        Some(HubDirs { data: p.data_dir().to_path_buf(), config: p.config_dir().to_path_buf(), portable: false })
     }
 
     pub fn under(root: &Path) -> HubDirs {
-        HubDirs { data: root.join("data"), config: root.join("config") }
+        HubDirs { data: root.join("data"), config: root.join("config"), portable: true }
+    }
+
+    /// Everything lives under one folder (see [`HubDirs::under`]).
+    pub fn portable(&self) -> bool {
+        self.portable
+    }
+
+    /// Passwords, keys and tokens that aren't in the OS keychain.
+    pub fn secrets_file(&self) -> PathBuf {
+        self.config.join("secrets.json")
     }
 
     pub fn apps(&self) -> PathBuf {

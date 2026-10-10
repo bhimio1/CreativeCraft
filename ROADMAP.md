@@ -41,7 +41,7 @@
 - [x] Agent tabs: several agents at once, each with its own app instances (`app_open_instance`)
 - [ ] First `cargo build` on all three OSes; fix API drift (egui/eframe 0.36, ureq, zip)
 - [ ] Confirm each Craft app's real release asset names; add `asset_hint` to the catalog if needed
-- [ ] Token storage in the OS keychain (`keyring` crate) instead of a 0600 file
+- [x] Passwords, API keys and the Google token in the OS keychain (macOS Keychain, Windows Credential Manager, Secret Service), with the 0600 file as fallback
 - [ ] Resumable *chunked* Drive uploads with retry for very large files; exponential backoff on 429/5xx
 - [ ] Sync on file change (`notify` crate) in addition to the timer; pause while an app has a file open
 - [ ] `cargo deny` (licences, advisories) and `cargo xtask layers` (enforce L0–L4) in CI

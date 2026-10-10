@@ -98,6 +98,8 @@ pub struct CreativeCraftApp {
     assistant: assistant::AssistantState,
     projects: projects::ProjectsState,
     splash: splash::Splash,
+    /// Where passwords and keys are kept ("the macOS Keychain", "a file only you can read").
+    secrets_place: &'static str,
 }
 
 impl CreativeCraftApp {
@@ -108,6 +110,7 @@ impl CreativeCraftApp {
             .map(|p| p.with_file_name(if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" }).display().to_string())
             .unwrap_or_else(|| "creativecraft-cli".into());
         let draft = session.settings.clone();
+        let secrets_place = session.secrets.place();
         let splash = splash::Splash::new(draft.intro_animation);
         theme::apply(&ctx, wants_dark(&ctx, draft.appearance));
         assets::install_fallback_fonts(&ctx);
@@ -144,6 +147,7 @@ impl CreativeCraftApp {
             assistant: assistant::AssistantState::default(),
             projects: projects::ProjectsState::default(),
             splash,
+            secrets_place,
         };
         app.refresh();
         // debug builds only: open on a given page, for screenshots and manual testing

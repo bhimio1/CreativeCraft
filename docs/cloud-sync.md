@@ -79,8 +79,12 @@ and OS litter (`.DS_Store`, `Thumbs.db`).
 
 ## Passwords and keys
 
-WebDAV passwords and S3 secret keys are kept in `secrets.json` in CreativeCraft's config folder,
-readable only by you, never in `settings.json`. Each setup keeps its own, so switching between two
+WebDAV passwords, S3 secret keys and your Google Drive sign-in are kept in your computer's keychain:
+the macOS Keychain, the Windows Credential Manager, or your desktop's keyring on Linux (GNOME
+Keyring, KWallet, KeePassXC… through Secret Service). Where there's none (a computer without a
+desktop session, or a portable install with `CREATIVECRAFT_HOME`), they go in `secrets.json` in
+CreativeCraft's config folder, readable only by you. Never in `settings.json`. Settings → General
+says which is used. Each setup keeps its own, so switching between two
 servers doesn't lose either password. Prefer an app password (Nextcloud: Settings → Security) or an
 S3 key limited to one bucket. rclone keeps its own accounts; CreativeCraft never sees them.
 

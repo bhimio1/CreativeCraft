@@ -106,11 +106,12 @@ temporary images aren't. Set a workflow to make video with ComfyUI.
 
 ## Keys
 
-API keys are kept in `secrets.json` in CreativeCraft's config folder, readable only by you, and
-never in `settings.json`. Removing a service removes its key. Keys are never shown to agents. If a
-service quotes your key back in an error message, it is replaced with `[your key]` before anyone
-sees it. From the command line, `generate key <id>` reads the key from standard input so it stays
-out of your shell history.
+API keys are kept in your computer's keychain (the macOS Keychain, the Windows Credential Manager,
+or your desktop's keyring on Linux), or, where there's none, in `secrets.json` in CreativeCraft's
+config folder, readable only by you. Never in `settings.json`. Removing a service removes its key.
+Keys are never shown to agents. If a service quotes your key back in an error message, it is
+replaced with `[your key]` before anyone sees it. From the command line, `generate key <id>` reads
+the key from standard input so it stays out of your shell history.
 
 ## Agents
 

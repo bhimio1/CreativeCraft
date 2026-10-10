@@ -105,6 +105,7 @@ crates/
   sync-plan    L0  three-way sync planner: pure, deterministic             (std only)
   catalog      L1  app catalog model; built-in catalog/apps.toml + user overlay
   marketplace  L1  plugin index model; built-in marketplace/plugins.toml (+ fetched update)
+  secrets      L1  passwords, keys and tokens: the OS keychain, else a private file
   install      L2  GitHub releases, download + verify, unpack, detect, launch
   cloud        L2  CloudStore trait; Drive, WebDAV, S3, rclone, folder backends; sync executor
   mcp          L2  MCP stdio client, hub MCP server

@@ -13,10 +13,11 @@
 
 use crate::oauth::{GoogleClient, Token, pct};
 use crate::{CloudError, CloudStore, RemoteFile};
+use creativecraft_secrets::Secrets;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const API: &str = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3/files";
@@ -50,7 +51,7 @@ struct FileList {
 pub struct GoogleDrive {
     client: GoogleClient,
     token: Token,
-    token_file: PathBuf,
+    secrets: Secrets,
     root_id: Option<String>,
     /// path → Drive id, for files and folders (folders keyed with a trailing `/`).
     ids: HashMap<String, String>,
@@ -58,29 +59,26 @@ pub struct GoogleDrive {
 
 impl GoogleDrive {
     /// Use a saved token (refreshing it when needed). `CloudError::SignedOut` if there is none.
-    pub fn connect(client: GoogleClient, token_file: PathBuf) -> Result<GoogleDrive, CloudError> {
-        let token = Token::load(&token_file).ok_or(CloudError::SignedOut)?;
-        Ok(GoogleDrive { client, token, token_file, root_id: None, ids: HashMap::new() })
+    pub fn connect(client: GoogleClient, secrets: Secrets) -> Result<GoogleDrive, CloudError> {
+        let token = Token::load(&secrets).ok_or(CloudError::SignedOut)?;
+        Ok(GoogleDrive { client, token, secrets, root_id: None, ids: HashMap::new() })
     }
 
     /// Run the browser sign-in and save the token.
-    pub fn sign_in(client: GoogleClient, token_file: PathBuf) -> Result<GoogleDrive, CloudError> {
+    pub fn sign_in(client: GoogleClient, secrets: Secrets) -> Result<GoogleDrive, CloudError> {
         let token = client.sign_in()?;
-        token.save(&token_file)?;
-        Ok(GoogleDrive { client, token, token_file, root_id: None, ids: HashMap::new() })
+        token.save(&secrets)?;
+        Ok(GoogleDrive { client, token, secrets, root_id: None, ids: HashMap::new() })
     }
 
-    pub fn sign_out(token_file: &Path) -> Result<(), CloudError> {
-        match std::fs::remove_file(token_file) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
-        }
+    pub fn sign_out(secrets: &Secrets) -> Result<(), CloudError> {
+        Token::forget(secrets)
     }
 
     fn bearer(&mut self) -> Result<String, CloudError> {
         if !self.token.is_fresh() {
             self.token = self.client.refresh(&self.token)?;
-            self.token.save(&self.token_file)?;
+            self.token.save(&self.secrets)?;
         }
         Ok(format!("Bearer {}", self.token.access_token))
     }

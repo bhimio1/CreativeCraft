@@ -31,7 +31,7 @@ mod xml;
 pub use creativecraft_sync_plan::Action;
 pub use folder::FolderStore;
 pub use gdrive::GoogleDrive;
-pub use oauth::{GoogleClient, Token};
+pub use oauth::{GoogleClient, TOKEN_NAME as GOOGLE_TOKEN, Token};
 pub use rclone::{RcloneStore, rclone_remotes};
 pub use s3::{S3Config, S3Store};
 pub use webdav::WebDavStore;

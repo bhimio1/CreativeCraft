@@ -20,6 +20,8 @@ finish-args:
   - --device=dri
   - --filesystem=home
   - --talk-name=org.freedesktop.Flatpak
+  # passwords, API keys and the Google token go in the desktop keyring (Secret Service)
+  - --talk-name=org.freedesktop.secrets
 modules:
   - name: creativecraft
     buildsystem: simple

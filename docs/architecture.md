@@ -183,8 +183,9 @@ exported desktop entry's `--command=`).
 <data>/downloads/*.part
 <config>/settings.json
 <config>/apps.toml                optional catalog overlay
-<config>/google-token.json        (0600)
-<config>/secrets.json             (0600) cloud passwords/secret keys, AI generation API keys
+<config>/secrets.json             (0600) secrets when there's no OS keychain (portable installs,
+                                  no desktop session); otherwise they're in the keychain under
+                                  "CreativeCraft" and secret-names.json lists their names
 <data>/chat.json                  `creativecraft-cli chat` transcript (the model history lives in the backend's session)
 <projects>/Generated/<date>/…     AI generation results, each with a .json sidecar
 <projects>/.creativecraft/sync-base.json, sync.lock, trash/, agent/

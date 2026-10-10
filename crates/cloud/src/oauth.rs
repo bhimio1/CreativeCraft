@@ -8,11 +8,11 @@
 use crate::CloudError;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use creativecraft_secrets::Secrets;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Only files this app creates or the user opens with it. Never the whole Drive.
@@ -41,6 +41,9 @@ struct TokenResponse {
     refresh_token: Option<String>,
 }
 
+/// The name the Google Drive token is kept under.
+pub const TOKEN_NAME: &str = "google-token";
+
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -50,23 +53,18 @@ impl Token {
         self.expires_at > now() + 60
     }
 
-    pub fn load(path: &Path) -> Option<Token> {
-        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+    /// The saved token, from the keychain (or the private secrets file).
+    pub fn load(secrets: &Secrets) -> Option<Token> {
+        serde_json::from_str(&secrets.get(TOKEN_NAME)?).ok()
     }
 
-    /// Saved readable by the current user only. (OS keychain storage is on the roadmap.)
-    pub fn save(&self, path: &Path) -> Result<(), CloudError> {
-        if let Some(d) = path.parent() {
-            std::fs::create_dir_all(d)?;
-        }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_vec(self)?)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
-        }
-        std::fs::rename(tmp, path)?;
+    pub fn save(&self, secrets: &Secrets) -> Result<(), CloudError> {
+        secrets.set(TOKEN_NAME, &serde_json::to_string(self)?)?;
+        Ok(())
+    }
+
+    pub fn forget(secrets: &Secrets) -> Result<(), CloudError> {
+        secrets.remove(TOKEN_NAME)?;
         Ok(())
     }
 }
