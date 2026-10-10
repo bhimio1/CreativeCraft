@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CreativeCraft Windows installer (WiX Toolset v5). Built by .github/workflows/release.yml:
+
+    wix build packaging/windows/creativecraft.wxs -arch x64 -ext WixToolset.UI.wixext
+        -d Version=0.2.1 -d BinDir=<folder with the two .exe> -d DocDir=<repo root> -o out.msi
+
+  Never change the UpgradeCode: it's how a new version finds and replaces the old one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="CreativeCraft"
+           Manufacturer="CreativeCraft contributors"
+           Version="$(var.Version)"
+           UpgradeCode="e9d9d196-3a88-4e75-8712-5f1db5afd29a"
+           Scope="perMachine"
+           Compressed="yes">
+    <SummaryInformation Description="CreativeCraft: one home for open-source creative apps" />
+
+    <!-- installing a newer version removes the older one first; an older one refuses to install over a newer -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="CreativeCraft.ico" SourceFile="$(sys.SOURCEFILEDIR)creativecraft.ico" />
+    <Property Id="ARPPRODUCTICON" Value="CreativeCraft.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/bhimio1/CreativeCraft" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/bhimio1/CreativeCraft/issues" />
+
+    <!-- a license page, then Install -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)license.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(sys.SOURCEFILEDIR)dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(sys.SOURCEFILEDIR)banner.bmp" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="CreativeCraft" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExe">
+        <File Id="CreativeCraftExe" Source="$(var.BinDir)\creativecraft.exe" KeyPath="yes" />
+      </Component>
+      <!-- the CLI is also the MCP server agents connect to, so it goes on PATH -->
+      <Component Id="CliExe">
+        <File Id="CreativeCraftCliExe" Source="$(var.BinDir)\creativecraft-cli.exe" KeyPath="yes" />
+        <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+      </Component>
+      <Component Id="Readme">
+        <File Source="$(var.DocDir)\README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="Notice">
+        <File Source="$(var.DocDir)\NOTICE" Name="NOTICE.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseMit">
+        <File Source="$(var.DocDir)\LICENSE-MIT" Name="LICENSE-MIT.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseApache">
+        <File Source="$(var.DocDir)\LICENSE-APACHE" Name="LICENSE-APACHE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="CreativeCraftShortcut"
+                  Name="CreativeCraft"
+                  Description="Install, update and open your creative apps"
+                  Target="[#CreativeCraftExe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="CreativeCraft.ico" />
+        <RegistryValue Root="HKCU" Key="Software\CreativeCraft" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="CreativeCraft" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

@@ -11,6 +11,10 @@ on:
       tag:
         description: "Tag to release (e.g. v0.1.3); created from the selected branch if missing"
         required: true
+      publish:
+        description: "Publish the release and the AUR package (untick for a dry run: build and test only)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -70,10 +74,12 @@ jobs:
           for b in creativecraft creativecraft-cli; do
             lipo -create -output out/$b target/aarch64-apple-darwin/release/$b target/x86_64-apple-darwin/release/$b
           done
-          # a minimal app bundle so the hub opens like a normal Mac app (unsigned)
+          # the app bundle (ad-hoc signed below; a Developer ID and notarization would remove the
+          # first-launch warning)
           app=out/CreativeCraft.app/Contents
           mkdir -p "$app/MacOS" "$app/Resources"
           cp out/creativecraft out/creativecraft-cli "$app/MacOS/"
+          cp packaging/macos/CreativeCraft.icns "$app/Resources/"
           cat > "$app/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -84,11 +90,17 @@ jobs:
             <key>CFBundleShortVersionString</key><string>${VERSION}</string>
             <key>CFBundleVersion</key><string>${VERSION}</string>
             <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleIconFile</key><string>CreativeCraft</string>
+            <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
             <key>NSHighResolutionCapable</key><true/>
             <key>LSMinimumSystemVersion</key><string>11.0</string>
           </dict></plist>
           EOF
           rm out/creativecraft
+          # Apple Silicon only runs signed code; sign the inner tool, then the bundle as a whole
+          codesign --force --sign - --identifier org.creativecraft.CreativeCraft.cli "$app/MacOS/creativecraft-cli"
+          codesign --force --sign - out/CreativeCraft.app
+          codesign --verify --deep --strict --verbose=2 out/CreativeCraft.app
 
       - name: Package
         shell: bash
@@ -114,12 +126,104 @@ jobs:
           fi
           if command -v sha256sum >/dev/null; then sha256sum "$name.${{ matrix.ext }}" > "$name.${{ matrix.ext }}.sha256"; else shasum -a 256 "$name.${{ matrix.ext }}" > "$name.${{ matrix.ext }}.sha256"; fi
 
+      # ── Windows installer (.msi) ──────────────────────────────────────────────────────────────
+      - name: Install WiX
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+
+      - name: Build the MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # MSI versions are numbers only: 0.2.1-beta.1 installs as 0.2.1
+          $msiVersion = ($env:VERSION -split '-')[0]
+          $out = "dist\creativecraft-$env:VERSION-windows-x64.msi"
+          wix build packaging\windows\creativecraft.wxs -arch x64 -ext WixToolset.UI.wixext `
+            -d "Version=$msiVersion" -d "BinDir=$PWD\out" -d "DocDir=$PWD" -o $out
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=MSI::wix build failed (see the step log)"; exit 1 }
+          $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $out -Leaf)" | Out-File -Encoding ascii "$out.sha256"
+          Get-Item $out | Format-List Name, Length
+
+      # install it, check every piece landed, run the CLI from PATH, uninstall, check it's all gone
+      - name: Test the MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Fail($msg) { Write-Output "::error title=MSI test::$msg"; exit 1 }
+          $msi = (Resolve-Path dist\*.msi).Path
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart /l*v install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { $tail = (Get-Content install.log -Tail 40) -join '%0A'; Fail "install exited $($p.ExitCode)%0A$tail" }
+          $dir = "$env:ProgramFiles\CreativeCraft"
+          foreach ($f in 'creativecraft.exe', 'creativecraft-cli.exe', 'README.md', 'NOTICE.txt', 'LICENSE-MIT.txt', 'LICENSE-APACHE.txt') {
+            if (-not (Test-Path "$dir\$f")) { Fail "$f missing from $dir" }
+          }
+          $lnk = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\CreativeCraft.lnk"
+          if (-not (Test-Path $lnk)) { Fail "Start menu shortcut missing" }
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          if ($machinePath -notlike "*$dir*") { Fail "install folder not added to PATH" }
+          $env:Path = "$machinePath;$env:Path"
+          $v = & creativecraft-cli --version
+          if ($LASTEXITCODE -ne 0 -or "$v" -notlike "*$(($env:VERSION -split '-')[0])*") { Fail "creativecraft-cli --version printed '$v'" }
+          $app = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -eq 'CreativeCraft'
+          if (-not $app) { Fail "not listed in Apps & features" }
+          Write-Output "Installed $($app.DisplayName) $($app.DisplayVersion); CLI says: $v"
+          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn /norestart /l*v uninstall.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Fail "uninstall exited $($p.ExitCode)" }
+          if (Test-Path "$dir\creativecraft.exe") { Fail "files left behind after uninstall" }
+          if (Test-Path $lnk) { Fail "shortcut left behind after uninstall" }
+          if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -like "*$dir*") { Fail "PATH entry left behind after uninstall" }
+          Write-Output "::notice title=MSI::installs, runs from PATH, and uninstalls cleanly"
+
+      # ── macOS disk image (.dmg) ───────────────────────────────────────────────────────────────
+      - name: Build the DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=creativecraft-${VERSION}-macos-universal
+          stage=$(mktemp -d)/CreativeCraft
+          mkdir -p "$stage"
+          cp -R out/CreativeCraft.app "$stage/"
+          ln -s /Applications "$stage/Applications"   # drag the app onto this to install
+          hdiutil create -volname "CreativeCraft" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "dist/$name.dmg"
+          (cd dist && shasum -a 256 "$name.dmg" > "$name.dmg.sha256")
+          ls -la dist/*.dmg
+
+      # mount it, check the app and the Applications shortcut, install by copying, run it, detach
+      - name: Test the DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          fail() { echo "::error title=DMG test::$1"; exit 1; }
+          dmg=$(ls dist/*.dmg)
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null || fail "hdiutil attach failed"
+          app="$mnt/CreativeCraft.app"
+          [ -x "$app/Contents/MacOS/creativecraft" ] || fail "app executable missing"
+          [ -f "$app/Contents/Resources/CreativeCraft.icns" ] || fail "app icon missing"
+          [ "$(readlink "$mnt/Applications")" = "/Applications" ] || fail "Applications shortcut missing"
+          out=$(codesign --verify --deep --strict "$app" 2>&1) || fail "signature doesn't verify: $out"
+          lipo -archs "$app/Contents/MacOS/creativecraft" | grep -q arm64 || fail "not a universal binary"
+          cp -R "$app" /Applications/ || fail "copying to /Applications failed"
+          hdiutil detach "$mnt" >/dev/null || fail "hdiutil detach failed"
+          v=$(/Applications/CreativeCraft.app/Contents/MacOS/creativecraft-cli --version 2>&1) || fail "the installed CLI didn't run: $v"
+          case "$v" in *"${VERSION%%-*}"*) ;; *) fail "creativecraft-cli --version printed '$v'";; esac
+          rm -rf /Applications/CreativeCraft.app
+          echo "::notice title=DMG::mounts, installs by drag and drop, signature verifies, runs ($v)"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.msi
+            dist/*.dmg
             dist/*.sha256
 
   flatpak:
@@ -168,6 +272,8 @@ jobs:
 
   release:
     needs: [build, flatpak]
+    # a manual run with "publish" unticked stops here: everything is built and tested, nothing published
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -187,10 +293,10 @@ jobs:
           body: |
             Pre-alpha preview build of CreativeCraft: one home for open-source creative apps, with cloud sync and an AI assistant that drives the apps over MCP.
 
-            **Downloads:** pick the archive for your system below, unpack it, and run `creativecraft` (or `CreativeCraft.app` on macOS). `creativecraft-cli` is the command-line version and the MCP server.
-
-            - macOS builds are unsigned: right-click the app and choose **Open** the first time.
-            - Windows may show a SmartScreen warning for unsigned apps: choose **More info → Run anyway**.
+            **Install:**
+            - **Windows:** download the `.msi` and double-click it. It installs to Program Files with a Start menu shortcut and updates any older version. Windows may show a SmartScreen warning for this unsigned installer: choose **More info → Run anyway**.
+            - **macOS:** open the `.dmg` and drag CreativeCraft onto Applications. The app isn't notarized by Apple yet, so the first time macOS says it can't verify it: open **System Settings → Privacy & Security** and choose **Open Anyway**.
+            - **Portable:** the `.zip` / `.tar.gz` archives need no installer: unpack and run `creativecraft`. `creativecraft-cli` is the command-line version and the MCP server.
             - Linux: the `.flatpak` bundle installs with `flatpak install --user creativecraft-*.flatpak` (it pulls the Freedesktop runtime from Flathub). On Arch, install `creativecraft-bin` from the AUR, or build it from the `PKGBUILD` attached here.
             - Verify downloads against `SHA256SUMS`.
 
@@ -198,6 +304,8 @@ jobs:
           files: |
             assets/*.tar.gz
             assets/*.zip
+            assets/*.msi
+            assets/*.dmg
             assets/*.flatpak
             assets/SHA256SUMS
 
