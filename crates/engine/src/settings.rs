@@ -137,6 +137,8 @@ pub struct Settings {
     pub device_name: String,
     /// Sync automatically every N minutes while the hub is open (0 = only on demand).
     pub auto_sync_minutes: u32,
+    /// Also sync a few seconds after files in the projects folder change.
+    pub sync_on_change: bool,
     pub custom_mcp: Vec<CustomMcp>,
     /// The assistant: which agent CLI runs it, and how.
     pub agent: AgentSettings,
@@ -164,6 +166,7 @@ impl Default for Settings {
             cloud: CloudChoice::Off,
             device_name: device,
             auto_sync_minutes: 10,
+            sync_on_change: true,
             custom_mcp: Vec::new(),
             agent: AgentSettings::default(),
             appearance: Appearance::System,

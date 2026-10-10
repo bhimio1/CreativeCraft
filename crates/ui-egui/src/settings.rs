@@ -404,10 +404,24 @@ impl CreativeCraftApp {
                     }
                 });
                 theme::row_divider(ui);
-                theme::setting_row(ui, "Sync automatically", "Every few minutes while CreativeCraft is open. 0 means only when you click Sync.", |ui| {
-                    ui.label(RichText::new("minutes").color(t.muted));
-                    ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
-                });
+                theme::setting_row(
+                    ui,
+                    "Sync automatically",
+                    "Every few minutes while CreativeCraft is open, as well. 0 means only when you click Sync (or files change).",
+                    |ui| {
+                        ui.label(RichText::new("minutes").color(t.muted));
+                        ui.add(egui::DragValue::new(&mut self.draft.auto_sync_minutes).range(0..=240));
+                    },
+                );
+                theme::row_divider(ui);
+                theme::setting_row(
+                    ui,
+                    "Sync when files change",
+                    "A few seconds after you save something in the projects folder, while CreativeCraft is open.",
+                    |ui| {
+                        theme::toggle(ui, &mut self.draft.sync_on_change);
+                    },
+                );
                 theme::row_divider(ui);
                 theme::setting_row(ui, "Files not to sync", "Patterns in .creativecraftignore in your projects folder, like renders/ or *.mov.", |ui| {
                     if ui.add(theme::secondary("Edit ignore rules")).clicked() {

@@ -3,7 +3,8 @@
 CreativeCraft keeps your projects folder in sync with a place of your choice, so the same work is
 on every computer you use. Pick it in **Settings → Cloud sync**; **Test connection** checks it
 without changing anything, and **Sync now** on the Files page (or `creativecraft-cli sync`) runs a
-pass. It also syncs by itself every few minutes while CreativeCraft is open.
+pass. While CreativeCraft is open it also syncs by itself a few seconds after you save something in
+the projects folder (a burst of saves makes one sync), and every few minutes as well.
 
 ## Where you can sync to
 

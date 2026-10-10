@@ -26,6 +26,9 @@ use egui::{RichText, vec2};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
+/// How long the projects folder must stay quiet after a change before it syncs.
+const QUIET_BEFORE_SYNC: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Apps,
@@ -100,6 +103,9 @@ pub struct CreativeCraftApp {
     splash: splash::Splash,
     /// Where passwords and keys are kept ("the macOS Keychain", "a file only you can read").
     secrets_place: &'static str,
+    /// Watches the projects folder for sync-on-change: the folder it watches, and the watcher
+    /// (`None` when it couldn't start, e.g. too many folders for the OS; the timer still syncs).
+    watcher: Option<(std::path::PathBuf, Option<creativecraft_engine::ChangeWatcher>)>,
 }
 
 impl CreativeCraftApp {
@@ -148,6 +154,7 @@ impl CreativeCraftApp {
             projects: projects::ProjectsState::default(),
             splash,
             secrets_place,
+            watcher: None,
         };
         app.refresh();
         // debug builds only: open on a given page, for screenshots and manual testing
@@ -325,6 +332,7 @@ impl CreativeCraftApp {
     }
 
     fn auto_sync(&mut self) {
+        self.sync_on_change();
         let mins = self.draft.auto_sync_minutes;
         if mins == 0 || self.busy.is_some() || matches!(self.draft.cloud, CloudChoice::Off) {
             return;
@@ -335,6 +343,36 @@ impl CreativeCraftApp {
             self.run("Sync", Command::Sync);
         }
         self.ctx.request_repaint_after(std::time::Duration::from_secs(30));
+    }
+
+    /// Sync a few seconds after something in the projects folder changed (and stayed quiet).
+    fn sync_on_change(&mut self) {
+        if !self.draft.sync_on_change || matches!(self.draft.cloud, CloudChoice::Off) {
+            self.watcher = None;
+            return;
+        }
+        let root = self.draft.projects_dir.clone();
+        if self.watcher.as_ref().is_none_or(|(r, _)| *r != root) {
+            let ctx = self.ctx.clone();
+            let w = creativecraft_engine::ChangeWatcher::new(&root, move || ctx.request_repaint_after(QUIET_BEFORE_SYNC))
+                .map_err(|e| log::warn!("sync on change is off: {e}"))
+                .ok();
+            self.watcher = Some((root, w));
+        }
+        let Some((_, Some(w))) = &mut self.watcher else { return };
+        if self.busy.is_some() {
+            // a sync (or another job) may be writing files: those aren't changes to send
+            if self.busy.as_deref() == Some("Sync") {
+                w.mute(std::time::Duration::from_secs(3));
+            }
+            return;
+        }
+        if w.poll(QUIET_BEFORE_SYNC) {
+            self.last_auto_sync = self.ctx.input(|i| i.time);
+            self.run("Sync", Command::Sync);
+        } else if w.pending() {
+            self.ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {

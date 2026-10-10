@@ -25,6 +25,7 @@ mod oauth;
 mod rclone;
 mod s3;
 pub mod sync;
+mod watch;
 mod webdav;
 mod xml;
 
@@ -34,6 +35,7 @@ pub use gdrive::GoogleDrive;
 pub use oauth::{GoogleClient, TOKEN_NAME as GOOGLE_TOKEN, Token};
 pub use rclone::{RcloneStore, rclone_remotes};
 pub use s3::{S3Config, S3Store};
+pub use watch::ChangeWatcher;
 pub use webdav::WebDavStore;
 
 use std::path::Path;

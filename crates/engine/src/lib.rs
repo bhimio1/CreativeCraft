@@ -15,6 +15,7 @@ pub mod stock;
 
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
+pub use creativecraft_cloud::ChangeWatcher;
 pub use creativecraft_generate as generation;
 pub use creativecraft_install::Source;
 pub use creativecraft_marketplace::{Index as PluginIndex, Plugin};
