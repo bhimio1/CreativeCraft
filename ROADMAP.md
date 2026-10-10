@@ -36,7 +36,7 @@
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
 - [x] Projects: PDF previews (first page, rendered by hayro, pure Rust)
 - [ ] Projects: previews for compressed `.blend`
-- [ ] Terminal: mouse reporting for full-screen TUIs, double-click word selection, a font-size setting
+- [x] Terminal: mouse reporting for full-screen TUIs, double/triple-click selection, text size (setting and Ctrl +/−/0), scrollback setting
 - [x] Cloud sync: WebDAV, S3-compatible and rclone backends, NAS guidance, retries, checked downloads, hash cache, `.creativecraftignore`, secrets file
 - [ ] Cloud sync: S3 multipart for files over 5 GB, resumable WebDAV uploads, sync on file change
 - [x] Agent tabs: several agents at once, each with its own app instances (`app_open_instance`)

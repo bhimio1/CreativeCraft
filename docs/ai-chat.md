@@ -13,7 +13,10 @@ There are two ways in:
   opens another tab with any agent, so several can work on different tasks at once; tabs keep
   running in the background. A tab starts when it's first shown; **Restart** begins a fresh
   session and **End** stops it; double-click a tab to rename it. Closing a running tab asks first.
-  Ctrl+C copies when text is selected and interrupts otherwise; drag to select, scroll for history.
+  Ctrl+C copies when text is selected and interrupts otherwise; drag to select (double-click a
+  word, triple-click a line), scroll for history. Full-screen programs that ask for the mouse get
+  clicks, drags and the wheel; hold Shift to select instead. Ctrl + / Ctrl − / Ctrl 0 change the
+  text size. Settings → Assistant → Terminal has the size, the scrollback and the mouse switch.
 
   When an agent uses an app, the app's window opens and the agent works in it, so you can watch
   and take over (Settings → Assistant → "Show apps while agents work" turns that off). Files it

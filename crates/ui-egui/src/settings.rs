@@ -582,6 +582,28 @@ impl CreativeCraftApp {
         }
         ui.add_space(8.0);
         ui.label(RichText::new("Changes apply the next time a session starts.").size(12.0).color(t.muted));
+        ui.add_space(16.0);
+        ui.label(RichText::new("Terminal").size(15.0).color(t.ink));
+        ui.add_space(6.0);
+        theme::card(ui, |ui| {
+            let term = &mut self.draft.terminal;
+            theme::setting_row(ui, "Text size", "Also Ctrl + and Ctrl − in the terminal; Ctrl 0 goes back to 13.", |ui| {
+                ui.add(egui::Slider::new(&mut term.font_size, 9..=28).suffix(" pt"));
+            });
+            theme::row_divider(ui);
+            theme::setting_row(ui, "Scrollback", "Lines kept above the screen. Applies to new tabs.", |ui| {
+                ui.add(egui::DragValue::new(&mut term.scrollback).range(100..=100_000).speed(100).suffix(" lines"));
+            });
+            theme::row_divider(ui);
+            theme::setting_row(
+                ui,
+                "Mouse in full-screen programs",
+                "Clicks, drags and the wheel go to programs that ask for them. Hold Shift to select text instead. Double-click selects a word, triple-click a line.",
+                |ui| {
+                    theme::toggle(ui, &mut term.mouse_reporting);
+                },
+            );
+        });
     }
 
     fn settings_connections(&mut self, ui: &mut egui::Ui) {

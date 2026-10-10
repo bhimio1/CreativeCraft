@@ -3,19 +3,19 @@
 //!
 //! Enough of a terminal for agent CLIs' interactive UIs: 256 colours and true colour, the
 //! alternate screen, application cursor keys, bracketed paste, scrollback, cursor-position and
-//! device-attribute replies, mouse selection and copy. Ctrl+C copies when there is a selection and
-//! otherwise interrupts, as in most desktop terminals.
+//! device-attribute replies, mouse selection and copy (double-click a word, triple-click a line),
+//! mouse reporting for full-screen programs that ask for it (Shift+drag still selects), and
+//! Ctrl +/−/0 to change the text size. Ctrl+C copies when there is a selection and otherwise
+//! interrupts, as in most desktop terminals.
 
 use crate::theme;
+use creativecraft_engine::TerminalSettings;
 use creativecraft_engine::agent::LaunchSpec;
 use egui::{Color32, FontId, Pos2, Rect, Sense, vec2};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-
-const SCROLLBACK: usize = 5000;
-const FONT_SIZE: f32 = 13.0;
 
 type Writer = Arc<Mutex<Box<dyn Write + Send>>>;
 
@@ -30,10 +30,15 @@ pub struct Terminal {
     selection: Option<((u16, u16), (u16, u16))>,
     /// Fractional wheel movement not yet turned into whole lines.
     scroll_acc: f32,
+    /// A mouse button held down while the program receives the mouse, and the cell last reported.
+    mouse_down: Option<u8>,
+    mouse_cell: Option<(u16, u16)>,
+    /// Ctrl +/−/0 asked for a bigger (+1), smaller (−1) or default (0) text size; the page applies it.
+    pub zoom: Option<i8>,
 }
 
 impl Terminal {
-    pub fn spawn(spec: &LaunchSpec, ctx: &egui::Context) -> Result<Terminal, String> {
+    pub fn spawn(spec: &LaunchSpec, ctx: &egui::Context, scrollback: u32) -> Result<Terminal, String> {
         let (rows, cols) = (24, 80);
         let pair =
             native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("couldn't open a terminal: {e}"))?;
@@ -60,7 +65,7 @@ impl Terminal {
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer: Writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| e.to_string())?));
-        let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK)));
+        let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, scrollback.clamp(100, 100_000) as usize)));
         let exited = Arc::new(AtomicBool::new(false));
 
         let (p, w, done, ctx) = (parser.clone(), writer.clone(), exited.clone(), ctx.clone());
@@ -77,7 +82,19 @@ impl Terminal {
             ctx.request_repaint();
         });
 
-        Ok(Terminal { parser, writer, master: pair.master, child, exited, size: (rows, cols), selection: None, scroll_acc: 0.0 })
+        Ok(Terminal {
+            parser,
+            writer,
+            master: pair.master,
+            child,
+            exited,
+            size: (rows, cols),
+            selection: None,
+            scroll_acc: 0.0,
+            mouse_down: None,
+            mouse_cell: None,
+            zoom: None,
+        })
     }
 
     /// Has the program ended?
@@ -109,9 +126,9 @@ impl Terminal {
     }
 
     /// Fill the available space with the terminal and handle its input.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+    pub fn show(&mut self, ui: &mut egui::Ui, settings: &TerminalSettings) -> egui::Response {
         let t = theme::Tokens::get();
-        let font = FontId::monospace(FONT_SIZE);
+        let font = FontId::monospace(f32::from(settings.font_size.clamp(9, 28)));
         let (cw, ch) = ui.ctx().fonts_mut(|f| (f.glyph_width(&font, 'M'), f.row_height(&font)));
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         let inner = rect.shrink(10.0);
@@ -134,8 +151,24 @@ impl Terminal {
             (r, c)
         };
 
-        // ── mouse: selection and wheel
-        if resp.drag_started()
+        // ── mouse: to the program when it asks (unless Shift is held), else selection and scrollback
+        let (mode, encoding) = self.parser.lock().map(|p| (p.screen().mouse_protocol_mode(), p.screen().mouse_protocol_encoding())).unwrap_or_default();
+        let shift = ui.input(|i| i.modifiers.shift);
+        let reporting = settings.mouse_reporting && mode != vt100::MouseProtocolMode::None && !shift && !self.exited();
+        if reporting {
+            self.selection = None;
+            self.report_mouse(ui, inner, &cell_at, mode, encoding, resp.hovered());
+        } else if resp.triple_clicked()
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let (r, _) = cell_at(p);
+            self.selection = Some(((r, 0), (r, cols - 1)));
+        } else if resp.double_clicked()
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let (r, c) = cell_at(p);
+            self.selection = self.word_at(r, c, cols);
+        } else if resp.drag_started()
             && let Some(p) = resp.interact_pointer_pos()
         {
             let c = cell_at(p);
@@ -147,7 +180,7 @@ impl Terminal {
         } else if resp.clicked() {
             self.selection = None;
         }
-        if resp.hovered() {
+        if resp.hovered() && !reporting {
             let dy = ui.input(|i| i.smooth_scroll_delta.y);
             self.scroll_acc += dy / ch;
             let lines = self.scroll_acc.trunc() as i32;
@@ -277,7 +310,107 @@ impl Terminal {
         }
     }
 
+    /// The word (or run of non-space, non-punctuation cells) around (`r`, `c`).
+    fn word_at(&self, r: u16, c: u16, cols: u16) -> Option<((u16, u16), (u16, u16))> {
+        let p = self.parser.lock().ok()?;
+        let screen = p.screen();
+        let in_word = |c: u16| {
+            screen.cell(r, c).is_some_and(|cell| {
+                let s = cell.contents();
+                !s.is_empty() && s.chars().all(|ch| ch.is_alphanumeric() || "_-./~:@%+#".contains(ch))
+            })
+        };
+        if !in_word(c) {
+            return None;
+        }
+        let (mut a, mut b) = (c, c);
+        while a > 0 && in_word(a - 1) {
+            a -= 1;
+        }
+        while b + 1 < cols && in_word(b + 1) {
+            b += 1;
+        }
+        Some(((r, a), (r, b)))
+    }
+
+    /// Mouse presses, releases, drags and the wheel, reported to a program that enabled the mouse.
+    fn report_mouse(
+        &mut self,
+        ui: &egui::Ui,
+        inner: Rect,
+        cell_at: &dyn Fn(Pos2) -> (u16, u16),
+        mode: vt100::MouseProtocolMode,
+        encoding: vt100::MouseProtocolEncoding,
+        hovered: bool,
+    ) {
+        use vt100::MouseProtocolMode as Mode;
+        let events = ui.input(|i| i.events.clone());
+        for ev in events {
+            match ev {
+                egui::Event::PointerButton { pos, button, pressed, modifiers } => {
+                    let code = match button {
+                        egui::PointerButton::Primary => 0,
+                        egui::PointerButton::Middle => 1,
+                        egui::PointerButton::Secondary => 2,
+                        _ => continue,
+                    };
+                    let cell = cell_at(pos);
+                    if pressed && inner.contains(pos) {
+                        self.mouse_down = Some(code);
+                        self.mouse_cell = Some(cell);
+                        self.send(&mouse_report(encoding, code, true, cell, modifiers));
+                    } else if !pressed && self.mouse_down == Some(code) {
+                        self.mouse_down = None;
+                        if mode != Mode::Press {
+                            self.send(&mouse_report(encoding, code, false, cell, modifiers));
+                        }
+                    }
+                }
+                egui::Event::PointerMoved(pos) => {
+                    let cell = cell_at(pos);
+                    if self.mouse_cell == Some(cell) || !inner.contains(pos) {
+                        continue;
+                    }
+                    let motion = match (self.mouse_down, mode) {
+                        (Some(b), Mode::ButtonMotion | Mode::AnyMotion) => Some(b),
+                        (None, Mode::AnyMotion) => Some(3),
+                        _ => None,
+                    };
+                    self.mouse_cell = Some(cell);
+                    if let Some(b) = motion {
+                        self.send(&mouse_report(encoding, b + 32, true, cell, egui::Modifiers::NONE));
+                    }
+                }
+                egui::Event::MouseWheel { delta, modifiers, .. } if hovered => {
+                    let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else { continue };
+                    let lines = if delta.y.abs() >= 1.0 { delta.y.abs().round().min(5.0) as usize } else { 1 };
+                    let code = if delta.y > 0.0 { 64 } else { 65 };
+                    for _ in 0..lines {
+                        self.send(&mouse_report(encoding, code, true, cell_at(pos), modifiers));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn input(&mut self, ui: &egui::Ui, ev: &egui::Event) {
+        // Ctrl +/−/0: text size, for the page to apply
+        if let egui::Event::Key { key, pressed: true, modifiers, .. } = ev
+            && modifiers.command
+            && !modifiers.shift_only()
+        {
+            let zoom = match key {
+                egui::Key::Plus | egui::Key::Equals => Some(1),
+                egui::Key::Minus => Some(-1),
+                egui::Key::Num0 => Some(0),
+                _ => None,
+            };
+            if zoom.is_some() {
+                self.zoom = zoom;
+                return;
+            }
+        }
         let (app_cursor, bracketed) = self.parser.lock().map(|p| (p.screen().application_cursor(), p.screen().bracketed_paste())).unwrap_or((false, false));
         let bytes: Vec<u8> = match ev {
             egui::Event::Text(s) => s.as_bytes().to_vec(),
@@ -324,6 +457,31 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = self.child.kill();
+    }
+}
+
+/// One mouse event for a program, in the encoding it asked for. `button`: 0 left, 1 middle, 2
+/// right, 3 no button (motion), 64/65 wheel up/down, +32 for motion; `cell` is (row, col).
+/// Shift isn't passed on: it's what selects text instead.
+fn mouse_report(encoding: vt100::MouseProtocolEncoding, button: u8, press: bool, cell: (u16, u16), m: egui::Modifiers) -> Vec<u8> {
+    let mods = if m.alt { 8 } else { 0 } + if m.ctrl { 16 } else { 0 };
+    let (row, col) = (u32::from(cell.0) + 1, u32::from(cell.1) + 1);
+    match encoding {
+        vt100::MouseProtocolEncoding::Sgr => format!("\x1b[<{};{col};{row}{}", button + mods, if press { 'M' } else { 'm' }).into_bytes(),
+        enc => {
+            // the classic form: release is button 3, every number offset by 32
+            let b = u32::from(if press { button } else { 3 } + mods) + 32;
+            let mut out = b"\x1b[M".to_vec();
+            for n in [b, col + 32, row + 32] {
+                if enc == vt100::MouseProtocolEncoding::Utf8 {
+                    let mut buf = [0u8; 4];
+                    out.extend_from_slice(char::from_u32(n).unwrap_or(' ').encode_utf8(&mut buf).as_bytes());
+                } else {
+                    out.push(n.min(255) as u8);
+                }
+            }
+            out
+        }
     }
 }
 
@@ -490,5 +648,82 @@ mod tests {
         assert_eq!(color(vt100::Color::Idx(16), true, false, &t), Color32::from_rgb(0, 0, 0));
         assert_eq!(color(vt100::Color::Idx(231), true, false, &t), Color32::from_rgb(255, 255, 255));
         assert_eq!(color(vt100::Color::Default, false, false, &t), Color32::TRANSPARENT);
+    }
+
+    #[test]
+    fn mouse_reports_in_each_encoding() {
+        use vt100::MouseProtocolEncoding as E;
+        let none = egui::Modifiers::NONE;
+        assert_eq!(mouse_report(E::Sgr, 0, true, (4, 9), none), b"\x1b[<0;10;5M");
+        assert_eq!(mouse_report(E::Sgr, 0, false, (4, 9), none), b"\x1b[<0;10;5m");
+        assert_eq!(mouse_report(E::Sgr, 64, true, (0, 0), egui::Modifiers::CTRL), b"\x1b[<80;1;1M");
+        // classic: release is button 3; numbers + 32
+        assert_eq!(mouse_report(E::Default, 0, true, (4, 9), none), [0x1b, b'[', b'M', 32, 42, 37]);
+        assert_eq!(mouse_report(E::Default, 2, false, (0, 0), none), [0x1b, b'[', b'M', 35, 33, 33]);
+        // UTF-8: big coordinates become multi-byte characters
+        let wide = mouse_report(E::Utf8, 0, true, (0, 299), none);
+        assert_eq!(&wide[..4], &[0x1b, b'[', b'M', 32]);
+        assert_eq!(std::str::from_utf8(&wide[4..]).unwrap().chars().next(), char::from_u32(300 + 32));
+    }
+
+    /// A real program in the terminal turns on SGR mouse reporting; a click on the widget reaches
+    /// it as an SGR press and release at the clicked cell.
+    #[cfg(unix)]
+    #[test]
+    fn clicks_reach_a_program_that_asked_for_the_mouse() {
+        let dir = std::env::temp_dir().join(format!("cc-term-mouse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let got = dir.join("got");
+        // enable press/release reporting in SGR form, then record the next 20 bytes of input (a press and a release at this cell)
+        let script = format!("printf '\\033[?1000h\\033[?1006h'; stty raw -echo; head -c 20 > '{}'", got.display());
+        let spec = LaunchSpec { program: "sh".into(), args: vec!["-c".into(), script], env: Vec::new(), cwd: dir.clone() };
+        let ctx = egui::Context::default();
+        let mut term = Terminal::spawn(&spec, &ctx, 1000).unwrap();
+        let settings = TerminalSettings::default();
+        let parser = term.parser.clone();
+        let size = egui::Rect::from_min_size(Pos2::ZERO, vec2(800.0, 400.0));
+        let mut frame = |events: Vec<egui::Event>| {
+            let input = egui::RawInput { screen_rect: Some(size), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+                    term.show(ui, &settings);
+                });
+            });
+            // no renderer here: drop the texture updates deliberately
+            out.textures_delta.clear();
+        };
+        // wait for the program to switch the mouse on
+        let started = std::time::Instant::now();
+        loop {
+            frame(Vec::new());
+            let on = parser.lock().unwrap().screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None;
+            if on || started.elapsed() > std::time::Duration::from_secs(10) {
+                assert!(on, "the program enabled the mouse");
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // a click at x=100, y=60 → inside the 10 px margin; work out the cell the same way
+        let at = Pos2::new(100.0, 60.0);
+        let press = egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE };
+        let release = egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE };
+        frame(vec![egui::Event::PointerMoved(at), press]);
+        frame(vec![release]);
+        let started = std::time::Instant::now();
+        let text = loop {
+            let t = std::fs::read(&got).unwrap_or_default();
+            if t.len() >= 20 || started.elapsed() > std::time::Duration::from_secs(10) {
+                break String::from_utf8_lossy(&t).into_owned();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let (cw, ch) = ctx.fonts_mut(|f| {
+            let font = FontId::monospace(f32::from(settings.font_size));
+            (f.glyph_width(&font, 'M'), f.row_height(&font))
+        });
+        let (col, row) = (((at.x - 10.0) / cw).floor() as u32 + 1, ((at.y - 10.0) / ch).floor() as u32 + 1);
+        assert!(text.starts_with(&format!("\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")), "{text:?} (expected col {col}, row {row})");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

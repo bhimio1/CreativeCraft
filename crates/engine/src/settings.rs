@@ -86,6 +86,25 @@ fn secrets_path(settings: &Path) -> PathBuf {
     settings.with_file_name("secrets.json")
 }
 
+/// The Assistant page's terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerminalSettings {
+    /// Text size in points (9–28).
+    pub font_size: u8,
+    /// Lines kept above the screen.
+    pub scrollback: u32,
+    /// Send clicks, drags and the wheel to full-screen programs that ask for them (Shift+drag
+    /// still selects).
+    pub mouse_reporting: bool,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> TerminalSettings {
+        TerminalSettings { font_size: 13, scrollback: 5000, mouse_reporting: true }
+    }
+}
+
 /// Window colour theme.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -128,6 +147,7 @@ pub struct Settings {
     pub plugins: BTreeMap<String, crate::PluginState>,
     /// AI image and video generation: the user's services and which to use by default.
     pub generation: GenerationSettings,
+    pub terminal: TerminalSettings,
     /// Play the short start-up animation when the window opens.
     pub intro_animation: bool,
     /// Agents work in apps' visible windows (live mode) rather than headless, so the user can
@@ -150,6 +170,7 @@ impl Default for Settings {
             app_sources: BTreeMap::new(),
             plugins: BTreeMap::new(),
             generation: GenerationSettings::default(),
+            terminal: TerminalSettings::default(),
             intro_animation: true,
             show_app_windows: true,
         }

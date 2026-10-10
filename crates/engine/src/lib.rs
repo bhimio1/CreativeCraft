@@ -19,7 +19,7 @@ pub use creativecraft_generate as generation;
 pub use creativecraft_install::Source;
 pub use creativecraft_marketplace::{Index as PluginIndex, Plugin};
 pub use plugins::PluginState;
-pub use settings::{Appearance, CloudChoice, CustomMcp, GenerationSettings, Settings};
+pub use settings::{Appearance, CloudChoice, CustomMcp, GenerationSettings, Settings, TerminalSettings};
 
 use creativecraft_catalog::{AppSpec, Catalog, Kind};
 use creativecraft_cloud::{CloudError, CloudStore, FolderStore, GoogleClient, GoogleDrive, sync};

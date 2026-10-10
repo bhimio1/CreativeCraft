@@ -110,7 +110,7 @@ impl CreativeCraftApp {
         let hub = McpServer::hub();
         let state = agent::state_dir(&self.draft.projects_dir);
         let req = SessionRequest { settings: &settings, workspace: &self.draft.projects_dir, state_dir: &state, hub: &hub };
-        match agent::interactive_launch(&req).map_err(|e| e.to_string()).and_then(|spec| Terminal::spawn(&spec, &self.ctx)) {
+        match agent::interactive_launch(&req).map_err(|e| e.to_string()).and_then(|spec| Terminal::spawn(&spec, &self.ctx, self.draft.terminal.scrollback)) {
             Ok(term) => {
                 tab.term = Some(term);
                 tab.error = None;
@@ -202,14 +202,23 @@ impl CreativeCraftApp {
         let active = self.assistant.active.min(self.assistant.tabs.len() - 1);
         let backend = self.assistant.tabs[active].backend;
         let exited = self.assistant.tabs[active].term.as_ref().is_some_and(Terminal::exited);
+        let settings = self.draft.terminal.clone();
+        // Ctrl +/−/0 in the terminal: the text size setting (saved like any other)
+        if let Some(zoom) = self.assistant.tabs[active].term.as_mut().and_then(|t| t.zoom.take()) {
+            let size = &mut self.draft.terminal.font_size;
+            *size = match zoom {
+                0 => creativecraft_engine::TerminalSettings::default().font_size,
+                z => (i16::from(*size) + i16::from(z)).clamp(9, 28) as u8,
+            };
+        }
         if let Some(term) = &mut self.assistant.tabs[active].term {
             if !exited {
-                term.show(ui);
+                term.show(ui, &settings);
                 return;
             }
             // keep the last screen visible above a restart bar
             let avail = ui.available_size();
-            ui.allocate_ui(vec2(avail.x, (avail.y - 52.0).max(80.0)), |ui| term.show(ui));
+            ui.allocate_ui(vec2(avail.x, (avail.y - 52.0).max(80.0)), |ui| term.show(ui, &settings));
             ui.add_space(10.0);
             let restart = ui
                 .horizontal(|ui| {
