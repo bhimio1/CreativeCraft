@@ -73,7 +73,8 @@ impl ChangeWatcher {
             if rel == IgnoreRules::FILE {
                 self.rules = crate::sync::ignore_rules(&self.root);
             }
-            if muted || rel == ".creativecraft" || rel.starts_with(".creativecraft/") || is_ignored(&rel) || self.rules.matches(&rel) {
+            // sync moves files: a folder's own event (macOS reports those) is no reason to sync
+            if muted || rel == ".creativecraft" || rel.starts_with(".creativecraft/") || is_ignored(&rel) || self.rules.matches(&rel) || path.is_dir() {
                 continue;
             }
             self.last_change = Some(now);
@@ -141,6 +142,9 @@ mod tests {
         std::fs::create_dir_all(root.join("renders")).unwrap();
         let mut w = ChangeWatcher::new(&root, || {}).unwrap();
         let quiet = Duration::from_millis(200);
+        // macOS can report the setup above as the watch starts: let it settle, then forget it
+        std::thread::sleep(Duration::from_millis(1500));
+        w.mute(Duration::ZERO);
 
         // our own state, temp files and ignored folders: nothing to sync
         std::fs::write(root.join(".creativecraft/sync-base.json"), b"{}").unwrap();
