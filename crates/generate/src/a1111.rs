@@ -6,7 +6,8 @@ use crate::{GenError, Output, Provider, Request, sniff_ext};
 use serde_json::{Value, json};
 
 pub(crate) fn txt2img(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> {
-    let (w, h) = r.aspect.pixels();
+    // editing keeps the picture's own shape
+    let (w, h) = r.picture_size().unwrap_or_else(|| r.aspect.pixels());
     let model = if r.model.trim().is_empty() { p.image_model.trim().to_string() } else { r.model.trim().to_string() };
     let mut body = json!({
         "prompt": r.prompt, "negative_prompt": r.negative, "width": w, "height": h,

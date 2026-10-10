@@ -217,6 +217,15 @@ impl Request {
         }))
     }
 
+    /// The first starting picture's size, for services that need an output size when editing:
+    /// its own, rounded down to multiples of 8 and at most 2048 on the long side.
+    pub(crate) fn picture_size(&self) -> Option<(u32, u32)> {
+        let (w, h) = image::image_dimensions(self.images.first()?).ok()?;
+        let k = (2048.0 / w.max(h) as f64).min(1.0);
+        let fit = |n: u32| (((f64::from(n) * k) as u32) / 8 * 8).max(64);
+        Some((fit(w), fit(h)))
+    }
+
     /// `strength` as 0.0–1.0.
     pub(crate) fn denoise(&self) -> f64 {
         f64::from(self.strength.unwrap_or(60).clamp(1, 100)) / 100.0

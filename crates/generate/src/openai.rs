@@ -17,7 +17,9 @@ pub(crate) fn image(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> 
     let mut body = json!({ "model": model, "prompt": r.prompt, "n": r.count });
     if p.kind == ProviderKind::Openai {
         // GPT image models' sizes
+        // editing keeps the picture's own shape
         body["size"] = json!(match r.aspect {
+            _ if !r.images.is_empty() => "auto",
             Aspect::Square => "1024x1024",
             Aspect::Landscape => "1536x1024",
             Aspect::Portrait => "1024x1536",

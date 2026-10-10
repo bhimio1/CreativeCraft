@@ -587,5 +587,7 @@ fn masks_reach_each_service_its_way() {
     assert_eq!(wf["12"]["inputs"]["samples"][0], "14");
     let a1111 = find("/sdapi/v1/img2img").json();
     assert!(a1111["mask"].as_str().is_some_and(|m| !m.is_empty()));
+    assert_eq!((a1111["width"].as_u64(), a1111["height"].as_u64()), (Some(64), Some(64)), "the 8x8 picture's own shape (at least 64)");
+    assert!(find("/images/edits").body.contains("name=\"size\"\r\n\r\nauto"));
     assert_eq!(a1111["inpainting_fill"], 1);
 }
