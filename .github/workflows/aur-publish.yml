@@ -81,3 +81,22 @@ jobs:
           git commit -qm "Update to ${TAG#v}"
           out=$(git push origin HEAD:master 2>&1) || fail "Pushing to the AUR failed: ${out//$'\n'/ }"
           echo "::notice title=AUR::Published creativecraft-bin ${TAG#v}: https://aur.archlinux.org/packages/creativecraft-bin"
+
+      # the same lookup yay and paru make, plus what the AUR's git repo holds
+      - name: Verify on the AUR
+        if: env.HAS_AUR_KEY == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          sleep 10
+          info=$(curl -fsS "https://aur.archlinux.org/rpc/v5/info?arg[]=creativecraft-bin" 2>&1)
+          search=$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/creativecraft?by=name" 2>&1)
+          log=$(git clone -q https://aur.archlinux.org/creativecraft-bin.git verify 2>&1 && git -C verify log --format='%h %an <%ae> %s' -5 2>&1; ls -A verify 2>&1)
+          srcinfo=$(head -4 verify/.SRCINFO 2>&1)
+          msg="info: ${info:0:600} | search: ${search:0:400} | git: ${log//$'\n'/ ; } | .SRCINFO: ${srcinfo//$'\n'/ ; }"
+          echo "$msg"
+          if echo "$info" | grep -q '"resultcount":1'; then
+            echo "::notice title=AUR verify::$msg"
+          else
+            echo "::error title=AUR verify::$msg"; exit 1
+          fi
