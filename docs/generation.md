@@ -36,6 +36,36 @@ points. On the Generate page, **Model** overrides the service's model for one re
 `{"steps": 30}`, `{"guidance_scale": 4}` or `{"quality": "high"}`. It isn't offered for ComfyUI,
 where your workflow holds the settings, or for Google.
 
+## Starting from a picture
+
+Drop a picture on the Generate page, right-click a result and choose **Start from this**, or
+right-click a downloaded picture on the Stock page and choose **Generate from this**, to
+edit or restyle it ("make it winter", "as a watercolour"), or with **Video** to use it as the
+first frame. **How much to change** sets the denoising strength where the service has one: low
+keeps the picture close, high changes more. Editing models such as GPT Image, Gemini or FLUX
+Kontext follow your words instead.
+
+| Service | How the picture is sent |
+|---|---|
+| OpenAI | Image edits (GPT Image takes several); Sora uses it as the first frame |
+| OpenAI-compatible | Image edits, one picture |
+| xAI | Image edits; Grok Imagine video uses it as the first frame |
+| Google | Gemini takes it with your words; Veo uses it as the first frame |
+| Replicate | Under the input name the model's own schema uses (`input_image`, `image_input`, `image`, …) |
+| fal | As `image_url` and `image_urls`, which fal's edit and image-to-video models take |
+| ComfyUI | Uploaded to ComfyUI; the built-in workflow becomes image-to-image, or put `{{image}}` in your Load Image node |
+| Stable Diffusion WebUI | img2img |
+
+Agents can start from pictures too, but only files inside the projects folder: an agent can't
+send other files on your computer to a service.
+
+## Stopping
+
+**Stop** ends the wait at once. ComfyUI, Stable Diffusion WebUI, Replicate and fal are also told
+to stop the job, so it stops running (and billing). CreativeCraft doesn't stop jobs on OpenAI, Google or
+xAI, so one already started there may finish (and be billed) on their side. Anything that finished
+before the stop is still saved.
+
 ## Local: ComfyUI
 
 With no workflow set, CreativeCraft sends a basic text-to-image workflow: a checkpoint loader, two
@@ -50,6 +80,8 @@ Then put these placeholders where the values go and set the file as **Your workf
 | `{{prompt}}`, `{{negative}}` | your description and what to avoid (also inside longer text) |
 | `{{seed}}`, `{{width}}`, `{{height}}`, `{{count}}` | numbers (the whole string must be the placeholder) |
 | `{{model}}` | the model field |
+| `{{image}}` | the starting picture (uploaded to ComfyUI first), for a Load Image node |
+| `{{denoise}}` | how much to change it, 0.01–1 (a number) |
 
 Every file the workflow saves (SaveImage, video combine nodes, …) is brought back. Previews and
 temporary images aren't. Set a workflow to make video with ComfyUI.
@@ -77,6 +109,10 @@ they should only generate what you asked for.
 <projects>/Generated/2026-10-09/a-lighthouse-on-a-cliff-at-dusk-103012.png.json
 ```
 
+Videos show a still in the gallery when [ffmpeg](https://ffmpeg.org) is installed: CreativeCraft
+asks it for one frame and keeps it in `.creativecraft/thumbs/` in the projects folder (not
+synced). Without ffmpeg, videos show a play symbol.
+
 The `.json` beside each file records the prompt, what to avoid, the service, the model, the
 shape, the seed and when it was made (UTC). Right-click a result on the Generate page and choose
 **Use this prompt** to start again from it.
@@ -92,6 +128,7 @@ creativecraft-cli generate test openai
 creativecraft-cli generate default video fal
 creativecraft-cli generate image "a lighthouse at dusk, oil painting" --aspect landscape --count 2
 creativecraft-cli generate video "slow drone shot over a misty forest" --seconds 8 --provider fal
+creativecraft-cli generate image "the same scene in winter" --image Stock/harbour.jpg --strength 50
 ```
 
 ## Troubleshooting

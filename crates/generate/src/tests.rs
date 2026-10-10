@@ -111,7 +111,16 @@ fn req(kind: Kind) -> Request {
         count: 2,
         seconds: Some(8),
         seed: None,
+        images: Vec::new(),
+        strength: None,
     }
+}
+
+/// A request starting from a picture on disk.
+fn from_picture(kind: Kind, tag: &str) -> Request {
+    let path = std::env::temp_dir().join(format!("cc-gen-input-{}-{}.png", tag.replace('/', "-"), std::process::id()));
+    std::fs::write(&path, PNG).unwrap();
+    Request { images: vec![path], count: 1, strength: Some(40), ..req(kind) }
 }
 
 fn quiet() -> impl FnMut(&str) {
@@ -316,6 +325,44 @@ fn replicate_waits_polls_and_downloads_with_the_token() {
 }
 
 #[test]
+fn stopping_a_job_stops_it_on_the_service() {
+    // a Replicate prediction and a ComfyUI prompt that never finish
+    let (base, seen) = serve(Box::new(|r, _| match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/models/owner/model/predictions") => json(serde_json::json!({ "id": "p1", "status": "starting" })),
+        ("GET", "/predictions/p1") => json(serde_json::json!({ "id": "p1", "status": "processing" })),
+        ("POST", "/prompt") => json(serde_json::json!({ "prompt_id": "c1" })),
+        ("GET", "/history/c1") => json(serde_json::json!({})),
+        _ => json(serde_json::json!({})),
+    }));
+    let mut rep = provider(ProviderKind::Replicate, &base);
+    rep.image_model = "owner/model".into();
+    let mut comfy = provider(ProviderKind::Comfyui, &base);
+    comfy.image_model = "sd.safetensors".into();
+    for p in [rep, comfy] {
+        let cancel = Cancel::default();
+        let stopper = cancel.clone();
+        let polls = std::sync::atomic::AtomicUsize::new(0);
+        let mut status = |_: &str| {
+            if polls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 2 {
+                stopper.cancel();
+            }
+        };
+        let e = generate_cancellable(&p, &req(Kind::Image), &mut status, &cancel).unwrap_err();
+        assert!(matches!(e, GenError::Cancelled), "{e}");
+    }
+    let log = seen.lock().unwrap().clone();
+    assert!(log.iter().any(|s| s.method == "POST" && s.path == "/predictions/p1/cancel"), "Replicate told to cancel");
+    assert!(log.iter().any(|s| s.path == "/queue" && s.json()["delete"][0] == "c1"), "ComfyUI queue entry removed");
+    assert!(log.iter().any(|s| s.path == "/interrupt"), "ComfyUI interrupted");
+    // stopped before it starts: nothing is sent
+    let cancel = Cancel::default();
+    cancel.cancel();
+    let p = provider(ProviderKind::Openai, &base);
+    assert!(matches!(generate_cancellable(&p, &req(Kind::Image), &mut quiet(), &cancel), Err(GenError::Cancelled)));
+    assert_eq!(seen.lock().unwrap().len(), log.len());
+}
+
+#[test]
 fn fal_queue_flow() {
     let (base, seen) = serve(Box::new(|r, n| {
         let me = format!("http://{}", r.header("host").unwrap_or(""));
@@ -378,7 +425,7 @@ fn comfyui_placeholders() {
         "1": { "inputs": { "text": "photo of {{prompt}}, best quality", "neg": "{{negative}}", "seed": "{{seed}}", "w": "{{width}}", "n": "{{count}}", "ckpt": "{{model}}" } }
     });
     let r = Request { negative: "blurry".into(), seed: Some(42), count: 1, ..req(Kind::Image) };
-    comfy::fill_workflow(&mut wf, &r, "flux.safetensors");
+    comfy::fill_workflow(&mut wf, &r, "flux.safetensors", None);
     let i = &wf["1"]["inputs"];
     assert_eq!(i["text"], "photo of a lighthouse, best quality");
     assert_eq!(i["neg"], "blurry");
@@ -397,4 +444,75 @@ fn stable_diffusion_webui() {
     let body = seen.lock().unwrap()[0].json();
     assert_eq!(body["batch_size"], 2);
     assert_eq!(body["override_settings"]["sd_model_checkpoint"], "dreamshaper_8");
+}
+
+#[test]
+fn starting_pictures_reach_each_service_its_way() {
+    let b64 = png_b64();
+    let (base, seen) = serve(Box::new(move |r, _| match (r.method.as_str(), r.path.as_str()) {
+        ("POST", "/images/edits") => json(serde_json::json!({ "data": [{ "b64_json": b64 }] })),
+        ("POST", p) if p.contains(":generateContent") => {
+            json(serde_json::json!({ "candidates": [{ "content": { "parts": [{ "inlineData": { "mimeType": "image/png", "data": b64 } }] } }] }))
+        }
+        ("GET", "/models/owner/kontext") => {
+            json(serde_json::json!({ "latest_version": { "openapi_schema": { "components": { "schemas": { "Input": { "properties": {
+            "prompt": { "type": "string" }, "input_image": { "type": "string" } } } } } } } }))
+        }
+        ("POST", "/models/owner/kontext/predictions") => {
+            json(serde_json::json!({ "id": "k1", "status": "succeeded", "output": format!("data:image/png;base64,{b64}") }))
+        }
+        ("POST", "/upload/image") => json(serde_json::json!({ "name": "start.png", "subfolder": "", "type": "input" })),
+        ("POST", "/prompt") => json(serde_json::json!({ "prompt_id": "i1" })),
+        ("GET", "/history/i1") => json(
+            serde_json::json!({ "i1": { "status": { "completed": true }, "outputs": { "9": { "images": [{ "filename": "o.png", "subfolder": "", "type": "output" }] } } } }),
+        ),
+        ("POST", "/sdapi/v1/img2img") => json(serde_json::json!({ "images": [b64] })),
+        _ => (200, PNG.to_vec()),
+    }));
+    let run = |kind: ProviderKind, model: &str| {
+        let mut p = provider(kind, &base);
+        p.image_model = model.into();
+        generate(&p, &from_picture(Kind::Image, model), &mut quiet()).unwrap()
+    };
+    run(ProviderKind::Openai, "gpt-image");
+    run(ProviderKind::Google, "gemini-image");
+    run(ProviderKind::Replicate, "owner/kontext");
+    run(ProviderKind::Comfyui, "sd.safetensors");
+    run(ProviderKind::Automatic1111, "dreamshaper");
+    let seen = seen.lock().unwrap();
+    let find = |path: &str| seen.iter().find(|s| s.path.starts_with(path)).unwrap().clone();
+
+    // OpenAI: a form with the fields and the picture as image[]
+    let edit = find("/images/edits");
+    assert!(edit.header("content-type").unwrap().starts_with("multipart/form-data; boundary="));
+    assert!(edit.body.contains("name=\"prompt\"\r\n\r\na lighthouse") && edit.body.contains("name=\"image[]\"; filename=") && edit.body.contains("fakeimage"));
+    // Gemini: the picture as a part before the words
+    let parts = find("/models/gemini-image:generateContent").json()["contents"][0]["parts"].clone();
+    assert_eq!(parts[0]["inlineData"]["mimeType"], "image/png");
+    assert_eq!(parts[1]["text"], "a lighthouse");
+    // Replicate: under the name the model's schema uses, as a data URI, without a forced shape
+    let input = find("/models/owner/kontext/predictions").json()["input"].clone();
+    assert!(input["input_image"].as_str().unwrap().starts_with("data:image/png;base64,"));
+    assert!(input.get("aspect_ratio").is_none());
+    // ComfyUI: uploaded, then loaded and partly re-sampled by the built-in workflow
+    assert!(find("/upload/image").body.contains("name=\"image\"; filename="));
+    let wf = find("/prompt").json()["prompt"].clone();
+    assert_eq!(wf["10"]["inputs"]["image"], "start.png");
+    assert_eq!(wf["3"]["inputs"]["denoise"], 0.4);
+    assert_eq!(wf["3"]["inputs"]["latent_image"][0], "12");
+    // Stable Diffusion WebUI: img2img with the strength
+    let a1111 = find("/sdapi/v1/img2img").json();
+    assert_eq!(a1111["denoising_strength"], 0.4);
+    assert_eq!(a1111["init_images"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn starting_pictures_are_checked() {
+    let mut r = from_picture(Kind::Image, "check");
+    r.images.push(std::path::PathBuf::from("/no/such/picture.png"));
+    assert!(r.inputs().unwrap_err().to_string().contains("can't read the starting picture"));
+    let text = std::env::temp_dir().join(format!("cc-gen-notpic-{}.txt", std::process::id()));
+    std::fs::write(&text, "hello").unwrap();
+    r.images = vec![text];
+    assert!(r.inputs().unwrap_err().to_string().contains("isn't a PNG"));
 }

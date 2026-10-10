@@ -13,7 +13,7 @@
 //! creativecraft-cli stock search <words…> [--kind photo|illustration|artwork|video|audio]
 //! creativecraft-cli stock download <source> <id> [size label]   into <projects>/Stock
 //! creativecraft-cli stock list [words…]                         what's downloaded (offline)
-//! creativecraft-cli generate image|video <prompt…> [--provider id] [--model m] [--aspect a] [--count n] [--seconds n]
+//! creativecraft-cli generate image|video <prompt…> [--provider id] [--model m] [--aspect a] [--count n] [--seconds n] [--image file] [--strength n]
 //! creativecraft-cli generate providers | presets | add <preset> | key <id> | remove <id> | test <id> | default image|video <id>
 //! creativecraft-cli bug [app]              report a bug in an app, or in CreativeCraft
 //! creativecraft-cli chat <message>         one AI chat turn, streamed (continues the current chat)
@@ -318,6 +318,8 @@ fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
                 None if kind == "video" => Aspect::Landscape,
                 None => Aspect::Square,
             };
+            // --image may be given several times
+            let images: Vec<std::path::PathBuf> = rest.windows(2).filter(|w| w[0] == "--image").map(|w| std::path::PathBuf::from(&w[1])).collect();
             let request = Request {
                 kind: if kind == "image" { Kind::Image } else { Kind::Video },
                 prompt: words.join(" "),
@@ -327,6 +329,8 @@ fn generate(s: &mut Session, rest: &[String]) -> Result<(), EngineError> {
                 count: number("--count")?.map_or(1, |n| n.clamp(1, 4) as u32),
                 seconds: number("--seconds")?.map(|n| n.min(60) as u32),
                 seed: number("--seed")?,
+                images,
+                strength: number("--strength")?.map(|n| n.clamp(1, 100) as u8),
             };
             let result = s.execute(Command::Generate { request, provider: value("--provider") }, &mut print_progress);
             eprintln!();

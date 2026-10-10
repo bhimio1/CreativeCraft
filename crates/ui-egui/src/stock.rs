@@ -12,6 +12,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+/// Wikimedia (most Openverse images) turns away clients that don't say who they are with a way to
+/// reach them (it answers 429), so the agent names the project.
+const USER_AGENT: &str = concat!("CreativeCraft/", env!("CARGO_PKG_VERSION"), " (https://github.com/bhimio1/CreativeCraft)");
 /// Wait this long after typing stops before searching.
 const DEBOUNCE: f64 = 0.7;
 const ROW_H: f32 = 170.0;
@@ -62,7 +65,7 @@ pub(crate) struct StockState {
     saved: Option<String>,
     thumbs: HashMap<String, Thumb>,
     tx: Option<Sender<Request>>,
-    img_tx: Option<Sender<String>>,
+    img_tx: Option<Sender<(String, Vec<String>)>>,
     reply_tx: Sender<Reply>,
     rx: Receiver<Reply>,
 }
@@ -156,14 +159,15 @@ impl StockState {
         tx
     }
 
-    /// Preview images: four fetchers sharing one queue.
-    fn request_image(&mut self, url: &str, ctx: &egui::Context) {
+    /// Preview images: four fetchers sharing one queue. `url` names the picture; if it can't be
+    /// fetched or read, the `fallbacks` are tried in turn and the first that works is used for it.
+    fn request_image(&mut self, url: &str, fallbacks: Vec<String>, ctx: &egui::Context) {
         if url.is_empty() || self.thumbs.contains_key(url) {
             return;
         }
         self.thumbs.insert(url.to_string(), Thumb::Loading);
         let tx = self.img_tx.get_or_insert_with(|| {
-            let (tx, rx) = channel::<String>();
+            let (tx, rx) = channel::<(String, Vec<String>)>();
             let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
             for _ in 0..4 {
                 let (rx, out, ctx) = (rx.clone(), self.reply_tx.clone(), ctx.clone());
@@ -171,8 +175,8 @@ impl StockState {
                     let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(30)).build();
                     loop {
                         let next = rx.lock().ok().and_then(|r| r.recv().ok());
-                        let Some(url) = next else { return };
-                        let img = fetch_image(&agent, &url);
+                        let Some((url, fallbacks)) = next else { return };
+                        let img = std::iter::once(&url).chain(&fallbacks).find_map(|u| fetch_image(&agent, u));
                         if out.send(Reply::Image(url, img)).is_err() {
                             return;
                         }
@@ -182,19 +186,94 @@ impl StockState {
             }
             tx
         });
-        let _ = tx.send(url.to_string());
+        let _ = tx.send((url.to_string(), fallbacks));
     }
+
+    /// An asset's grid picture, with somewhere else to get it.
+    fn request_thumbnail(&mut self, a: &Asset, ctx: &egui::Context) {
+        let fallbacks = image_fallbacks(a, &a.thumbnail);
+        self.request_image(&a.thumbnail, fallbacks, ctx);
+    }
+}
+
+/// Where else an asset's picture can come from when `primary` fails. Openverse can't make
+/// thumbnails of SVG files (it answers 424), and an SVG is no use to an image decoder, so for an
+/// SVG on Wikimedia Commons use Commons' own PNG rendering, then the SVG itself (rasterised here).
+fn image_fallbacks(a: &Asset, primary: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for u in [a.preview.as_str(), a.thumbnail.as_str()] {
+        if let Some(png) = wikimedia_png(u) {
+            out.push(png);
+        }
+        if a.kind.is_visual() {
+            out.push(u.to_string());
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|u| !u.is_empty() && u != primary && seen.insert(u.clone()));
+    out
+}
+
+/// `…/commons/a/ab/Name.svg` → `…/commons/thumb/a/ab/Name.svg/500px-Name.svg.png`, the PNG Commons
+/// renders of an SVG (500 is one of the widths it serves).
+fn wikimedia_png(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://upload.wikimedia.org/wikipedia/")?;
+    let (project, path) = rest.split_once('/')?;
+    if path.starts_with("thumb/") || !path.to_ascii_lowercase().ends_with(".svg") {
+        return None;
+    }
+    let name = path.rsplit('/').next()?;
+    Some(format!("https://upload.wikimedia.org/wikipedia/{project}/thumb/{path}/500px-{name}.png"))
+}
+
+/// Looks like an SVG document (possibly after an XML declaration, comments or a doctype).
+fn is_svg(bytes: &[u8]) -> bool {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
+    head.contains("<svg")
 }
 
 fn fetch_image(agent: &ureq::Agent, url: &str) -> Option<egui::ColorImage> {
     use std::io::Read;
-    let resp = agent.get(url).set("User-Agent", concat!("CreativeCraft/", env!("CARGO_PKG_VERSION"))).call().ok()?;
+    // busy servers (Wikimedia rate-limits bursts) say when to come back: wait and ask again
+    let mut tries = 0;
+    let resp = loop {
+        match agent.get(url).set("User-Agent", USER_AGENT).call() {
+            Ok(r) => break r,
+            Err(ureq::Error::Status(429 | 503, r)) if tries < 3 => {
+                let wait = r.header("Retry-After").and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(4).clamp(1, 30);
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                tries += 1;
+            }
+            Err(_) => return None,
+        }
+    };
     let mut bytes = Vec::new();
     resp.into_reader().take(20 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
-    let img = image::load_from_memory(&bytes).ok()?;
-    let img = if img.width() > THUMB_PX || img.height() > THUMB_PX { img.thumbnail(THUMB_PX, THUMB_PX) } else { img };
-    let rgba = img.to_rgba8();
-    Some(egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw()))
+    decode_image(&bytes)
+}
+
+/// A picture from bytes: any format `image` reads, or SVG. Transparent pictures (icons, flags,
+/// diagrams) are laid on a light backdrop so dark line art stays visible in the dark theme.
+fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
+    let mut img = match image::load_from_memory(bytes) {
+        Ok(img) => {
+            let img = if img.width() > THUMB_PX || img.height() > THUMB_PX { img.thumbnail(THUMB_PX, THUMB_PX) } else { img };
+            let rgba = img.to_rgba8();
+            egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw())
+        }
+        Err(_) if is_svg(bytes) => crate::assets::rasterize_svg(bytes, THUMB_PX)?,
+        Err(_) => return None,
+    };
+    if img.pixels.iter().any(|p| p.a() < 250) {
+        let paper = Color32::from_rgb(0xf4, 0xf3, 0xef);
+        for p in &mut img.pixels {
+            // pixels are premultiplied: colour + paper × (1 − alpha)
+            let k = 255 - u16::from(p.a());
+            let mix = |c: u8, bg: u8| (u16::from(c) + u16::from(bg) * k / 255).min(255) as u8;
+            *p = Color32::from_rgb(mix(p.r(), paper.r()), mix(p.g(), paper.g()), mix(p.b(), paper.b()));
+        }
+    }
+    Some(img)
 }
 
 /// "Lighthouse Village" · CC0 → plain words for the detail panel.
@@ -437,7 +516,7 @@ impl CreativeCraftApp {
         let t = theme::Tokens::get();
         let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
         if ui.is_rect_visible(rect) {
-            self.stock.request_image(&a.thumbnail, &self.ctx.clone());
+            self.stock.request_thumbnail(a, &self.ctx.clone());
             let p = ui.painter_at(rect);
             p.rect_filled(rect, 6.0, t.bar);
             match self.stock.thumbs.get(&a.thumbnail) {
@@ -509,7 +588,8 @@ impl CreativeCraftApp {
             });
             // a larger preview (images: the preview URL; video and audio: their thumbnail)
             let url = if a.kind.is_visual() && !a.preview.is_empty() { a.preview.clone() } else { a.thumbnail.clone() };
-            self.stock.request_image(&url, &self.ctx.clone());
+            let fallbacks = image_fallbacks(&a, &url);
+            self.stock.request_image(&url, fallbacks, &self.ctx.clone());
             if let Some(Thumb::Ready(tex)) = self.stock.thumbs.get(&url).or_else(|| self.stock.thumbs.get(&a.thumbnail)) {
                 let s = tex.size_vec2();
                 let w = ui.available_width();
@@ -623,7 +703,7 @@ impl CreativeCraftApp {
             }
             let thumb = Rect::from_min_size(rect.left_top() + vec2(8.0, 6.0), vec2(72.0, 52.0));
             ui.painter().rect_filled(thumb, 4.0, t.bar);
-            self.stock.request_image(&item.asset.thumbnail, &self.ctx.clone());
+            self.stock.request_thumbnail(&item.asset, &self.ctx.clone());
             if let Some(Thumb::Ready(tex)) = self.stock.thumbs.get(&item.asset.thumbnail) {
                 let s = tex.size_vec2();
                 let img = Rect::from_center_size(thumb.center(), s * (thumb.width() / s.x).min(thumb.height() / s.y));
@@ -654,6 +734,17 @@ impl CreativeCraftApp {
                     ui.ctx().copy_text(item.asset.credit_line());
                     ui.close();
                 }
+                let picture = path.as_ref().filter(|p| {
+                    let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+                    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif")
+                });
+                if let Some(p) = picture
+                    && ui.button("Generate from this").on_hover_text("Edit or restyle it with your AI generation service").clicked()
+                {
+                    let p = p.clone();
+                    self.generate_from(&p);
+                    ui.close();
+                }
                 if let Some(p) = path
                     && ui.button("Show in folder").clicked()
                 {
@@ -666,5 +757,32 @@ impl CreativeCraftApp {
             ui.add_space(4.0);
         }
         let _ = Page::Stock;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commons_svgs_get_a_png_rendering() {
+        assert_eq!(
+            wikimedia_png("https://upload.wikimedia.org/wikipedia/commons/3/3e/Coat_of_arms_of_Kinshasa.svg").as_deref(),
+            Some("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Coat_of_arms_of_Kinshasa.svg/500px-Coat_of_arms_of_Kinshasa.svg.png")
+        );
+        assert_eq!(wikimedia_png("https://upload.wikimedia.org/wikipedia/commons/a/ab/Photo.jpg"), None);
+        assert_eq!(wikimedia_png("https://example.org/x.svg"), None);
+    }
+
+    #[test]
+    fn svg_bytes_decode_onto_a_backdrop() {
+        let svg = br##"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="10" height="10" fill="#000"/></svg>"##;
+        let img = decode_image(svg).unwrap();
+        assert_eq!(img.size[0], THUMB_PX as usize);
+        // the drawn half is black, the transparent half is the light backdrop, all opaque
+        assert!(img.pixels.iter().all(|p| p.a() == 255));
+        assert_eq!(img.pixels[0], Color32::from_rgb(0, 0, 0));
+        assert_eq!(img.pixels[img.size[0] - 1], Color32::from_rgb(0xf4, 0xf3, 0xef));
+        assert!(decode_image(b"not a picture").is_none());
     }
 }

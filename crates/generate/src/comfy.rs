@@ -1,10 +1,10 @@
 //! ComfyUI on the user's computer. A built-in text-to-image workflow (checkpoint loader, two text
 //! encoders, sampler, decoder, save) works with any Stable Diffusion checkpoint; for anything else
 //! (video, ControlNet, FLUX…) the user points at their own workflow exported with "Export (API)",
-//! with `{{prompt}}`, `{{negative}}`, `{{seed}}`, `{{width}}`, `{{height}}`, `{{count}}` and
-//! `{{model}}` where the values go.
+//! with `{{prompt}}`, `{{negative}}`, `{{seed}}`, `{{width}}`, `{{height}}`, `{{count}}`,
+//! `{{model}}`, `{{image}}` (a starting picture, uploaded first) and `{{denoise}}` where the values go.
 
-use crate::http::{IMAGE_LIMIT, VIDEO_LIMIT, get_bytes, get_json, poll, post_json};
+use crate::http::{IMAGE_LIMIT, Part, VIDEO_LIMIT, get_bytes, get_json, poll, post_json, post_multipart, send_stop};
 use crate::{GenError, Kind, Output, Provider, Request, sniff_ext};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -22,10 +22,11 @@ fn seed(r: &Request) -> u64 {
     r.seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64 % 1_000_000_000_000))
 }
 
-/// The built-in text-to-image workflow, in ComfyUI's API format.
-pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str) -> Value {
+/// The built-in workflow, in ComfyUI's API format: text to image, or with `image` (an uploaded
+/// file name) image to image.
+pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str, image: Option<&str>) -> Value {
     let (w, h) = r.aspect.pixels();
-    json!({
+    let mut wf = json!({
         "3": { "class_type": "KSampler", "inputs": {
             "seed": seed(r), "steps": 25, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
             "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0] } },
@@ -35,6 +36,28 @@ pub(crate) fn builtin_workflow(r: &Request, checkpoint: &str) -> Value {
         "7": { "class_type": "CLIPTextEncode", "inputs": { "text": r.negative, "clip": ["4", 1] } },
         "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
         "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "CreativeCraft", "images": ["8", 0] } },
+    });
+    if let Some(image) = image {
+        // start from the picture: load it, encode it, and sample over it partly
+        wf["10"] = json!({ "class_type": "LoadImage", "inputs": { "image": image } });
+        wf["11"] = json!({ "class_type": "VAEEncode", "inputs": { "pixels": ["10", 0], "vae": ["4", 2] } });
+        wf["12"] = json!({ "class_type": "RepeatLatentBatch", "inputs": { "samples": ["11", 0], "amount": r.count } });
+        wf["3"]["inputs"]["latent_image"] = json!(["12", 0]);
+        wf["3"]["inputs"]["denoise"] = json!(r.denoise());
+        if let Value::Object(m) = &mut wf {
+            m.remove("5");
+        }
+    }
+    wf
+}
+
+/// Upload a starting picture to ComfyUI's input folder; returns the name to load it by.
+fn upload(p: &Provider, img: &crate::InputImage) -> Result<String, GenError> {
+    let v = post_multipart(&p.name, &format!("{}/upload/image", p.base()), &[], &[Part::File("image", img), Part::Text("overwrite", "true".into())])?;
+    let name = v.get("name").and_then(Value::as_str).ok_or_else(|| GenError::Failed(format!("{} didn't take the picture", p.name)))?;
+    Ok(match v.get("subfolder").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        Some(sub) => format!("{sub}/{name}"),
+        None => name.to_string(),
     })
 }
 
@@ -53,15 +76,19 @@ fn walk(v: &mut Value, f: &dyn Fn(&str) -> Option<Value>) {
 
 /// Fill the `{{…}}` placeholders in a user's workflow. A string that is exactly a numeric
 /// placeholder becomes a number; text placeholders are replaced inside strings.
-pub(crate) fn fill_workflow(v: &mut Value, r: &Request, model: &str) {
+pub(crate) fn fill_workflow(v: &mut Value, r: &Request, model: &str, image: Option<&str>) {
     let (w, h) = r.aspect.pixels();
     let s = seed(r);
+    let image = image.unwrap_or("");
     walk(v, &|text: &str| match text {
         "{{seed}}" => Some(json!(s)),
+        "{{denoise}}" => Some(json!(r.denoise())),
         "{{width}}" => Some(json!(w)),
         "{{height}}" => Some(json!(h)),
         "{{count}}" => Some(json!(r.count)),
-        t if t.contains("{{") => Some(json!(t.replace("{{prompt}}", &r.prompt).replace("{{negative}}", &r.negative).replace("{{model}}", model))),
+        t if t.contains("{{") => {
+            Some(json!(t.replace("{{prompt}}", &r.prompt).replace("{{negative}}", &r.negative).replace("{{model}}", model).replace("{{image}}", image)))
+        }
         _ => None,
     });
 }
@@ -96,6 +123,10 @@ fn query_escape(s: &str) -> String {
 
 pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Output>, GenError> {
     let model = if r.model.trim().is_empty() { p.image_model.trim().to_string() } else { r.model.trim().to_string() };
+    let image = match r.inputs()?.first() {
+        Some(img) => Some(upload(p, img)?),
+        None => None,
+    };
     let workflow = if p.workflow.trim().is_empty() {
         if r.kind == Kind::Video {
             return Err(GenError::Config(format!(
@@ -104,13 +135,16 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
             )));
         }
         let checkpoint = if model.is_empty() { first_checkpoint(p)? } else { model.clone() };
-        builtin_workflow(r, &checkpoint)
+        builtin_workflow(r, &checkpoint, image.as_deref())
     } else {
         let text = std::fs::read_to_string(p.workflow.trim())
             .map_err(|e| GenError::Config(format!("{}: can't read the workflow {}: {e}", p.name, p.workflow.trim())))?;
         let mut v: Value = serde_json::from_str(&text)
             .map_err(|e| GenError::Config(format!("{}: the workflow isn't valid JSON ({e}); export it with \"Export (API)\"", p.name)))?;
-        fill_workflow(&mut v, r, &model);
+        if image.is_some() && !text.contains("{{image}}") {
+            return Err(GenError::Config(format!("{}: your workflow has no {{{{image}}}} for the starting picture; put it in its Load Image node", p.name)));
+        }
+        fill_workflow(&mut v, r, &model, image.as_deref());
         v
     };
     let queued = post_json(&p.name, &format!("{}/prompt", p.base()), &[], &json!({ "prompt": workflow }))?;
@@ -130,6 +164,13 @@ pub(crate) fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
             return Ok(None);
         }
         Ok(Some(entry.clone()))
+    })
+    .inspect_err(|e| {
+        if matches!(e, GenError::Cancelled) {
+            // take it out of the queue if it hasn't started, and stop it if it has
+            send_stop(&p.name, "POST", &format!("{}/queue", p.base()), &[], Some(&json!({ "delete": [id] })));
+            send_stop(&p.name, "POST", &format!("{}/interrupt", p.base()), &[], None);
+        }
     })?;
     let files = output_files(&entry);
     if files.is_empty() {

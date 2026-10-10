@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 /// Largest file accepted from a service (a long 4K video fits).
 const MAX_DOWNLOAD: u64 = 2 * 1024 * 1024 * 1024;
-const UA: &str = concat!("CreativeCraft/", env!("CARGO_PKG_VERSION"));
+const UA: &str = concat!("CreativeCraft/", env!("CARGO_PKG_VERSION"), " (https://github.com/bhimio1/CreativeCraft)");
 
 pub(crate) fn agent() -> ureq::Agent {
     // generous: some services answer a create call only once the image is done
@@ -89,7 +89,7 @@ pub(crate) fn get_json(service: &str, url: &str, headers: &[(&str, String)]) -> 
             Err(e) if !retryable(&e) => return Err(err(service, e)),
             Err(e) => last = Some(err(service, e)),
         }
-        std::thread::sleep(Duration::from_millis(500 << attempt));
+        nap(Duration::from_millis(500 << attempt))?;
     }
     Err(last.unwrap_or_else(|| GenError::Net(format!("{service}: no answer"))))
 }
@@ -107,7 +107,7 @@ pub(crate) fn get_bytes(service: &str, url: &str, headers: &[(&str, String)]) ->
             Err(e) if !retryable(&e) => return Err(err(service, e)),
             Err(e) => last = Some(err(service, e)),
         }
-        std::thread::sleep(Duration::from_millis(800 << attempt));
+        nap(Duration::from_millis(800 << attempt))?;
     }
     Err(last.unwrap_or_else(|| GenError::Net(format!("{service}: download failed"))))
 }
@@ -120,14 +120,71 @@ pub(crate) fn poll<T>(limit: Duration, every: Duration, mut step: impl FnMut() -
     let every = if cfg!(test) { Duration::from_millis(5) } else { every };
     let mut wait = every;
     loop {
+        crate::check_cancel()?;
         if let Some(v) = step()? {
             return Ok(v);
         }
         if start.elapsed() > limit {
             return Err(GenError::Timeout(limit.as_secs() / 60));
         }
-        std::thread::sleep(wait);
+        nap(wait)?;
         wait = (wait + wait / 4).min(every * 4);
+    }
+}
+
+/// Sleep, waking early (with `Cancelled`) if the generation is stopped.
+fn nap(d: Duration) -> Result<(), GenError> {
+    let until = Instant::now() + d;
+    while Instant::now() < until {
+        crate::check_cancel()?;
+        std::thread::sleep((until - Instant::now()).min(Duration::from_millis(100)));
+    }
+    Ok(())
+}
+
+/// One field of a multipart form.
+pub(crate) enum Part<'a> {
+    Text(&'a str, String),
+    File(&'a str, &'a crate::InputImage),
+}
+
+/// `multipart/form-data` POST (OpenAI's edit and video endpoints, ComfyUI's upload). Never retried.
+pub(crate) fn post_multipart(service: &str, url: &str, headers: &[(&str, String)], parts: &[Part]) -> Result<Value, GenError> {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let boundary = format!("----creativecraft{nanos:x}{:x}", std::process::id());
+    let mut body = Vec::new();
+    for part in parts {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        match part {
+            Part::Text(name, value) => {
+                body.extend_from_slice(format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").as_bytes());
+            }
+            Part::File(name, img) => {
+                let file = img.name.replace(['"', '\r', '\n'], "_");
+                body.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{file}\"\r\nContent-Type: {}\r\n\r\n", img.mime).as_bytes(),
+                );
+                body.extend_from_slice(&img.bytes);
+                body.extend_from_slice(b"\r\n");
+            }
+        }
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    let req = with_headers(agent().post(url), headers).set("Content-Type", &format!("multipart/form-data; boundary={boundary}"));
+    let resp = req.send_bytes(&body).map_err(|e| err(service, e))?;
+    resp.into_json().map_err(|e| GenError::Net(format!("{service}: {e}")))
+}
+
+/// Tell a service to stop a job; best effort (the user asked to stop, so a failure here only
+/// means the service finishes the job on its own).
+pub(crate) fn send_stop(service: &str, method: &str, url: &str, headers: &[(&str, String)], body: Option<&Value>) {
+    let req = with_headers(agent().request(method, url), headers);
+    let result = match body {
+        Some(b) => req.send_json(b.clone()),
+        None => req.call(),
+    };
+    if let Err(e) = result {
+        log::warn!("{service}: couldn't stop the job: {e}");
     }
 }
 

@@ -21,7 +21,9 @@ USAGE
   creativecraft-cli generate image <prompt>   make images with your AI service, into Generated/
                      [--provider id] [--model m] [--aspect square|landscape|portrait] [--count 1-4]
                      [--negative text] [--seed n]
-  creativecraft-cli generate video <prompt>   a short video [--seconds n] (and the options above)
+                     [--image file]… start from a picture: edit or restyle it [--strength 1-100]
+  creativecraft-cli generate video <prompt>   a short video [--seconds n] (and the options above;
+                                           --image is the first frame)
   creativecraft-cli generate providers     your AI generation services
   creativecraft-cli generate presets       services you can add: OpenAI, Google, xAI, Replicate, fal,
                                            Together, ComfyUI, Stable Diffusion WebUI, custom

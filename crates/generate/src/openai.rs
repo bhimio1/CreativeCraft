@@ -1,6 +1,6 @@
 //! OpenAI (GPT Image, Sora), OpenAI-compatible image servers, and xAI (Grok Imagine).
 
-use crate::http::{VIDEO_LIMIT, b64, get_bytes, get_json, poll, post_json};
+use crate::http::{Part, VIDEO_LIMIT, b64, get_bytes, get_json, poll, post_json, post_multipart};
 use crate::{Aspect, GenError, Output, Provider, ProviderKind, Request, sniff_ext};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -26,7 +26,27 @@ pub(crate) fn image(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> 
     if let Value::Object(m) = &mut body {
         m.extend(p.extra()?);
     }
-    let resp = post_json(&p.name, &format!("{}/images/generations", p.base()), &auth(p)?, &body)?;
+    let inputs = r.inputs()?;
+    let resp = if inputs.is_empty() {
+        post_json(&p.name, &format!("{}/images/generations", p.base()), &auth(p)?, &body)?
+    } else if p.kind == ProviderKind::Xai {
+        // xAI edits take the picture as a URL (a data: URI works) in JSON
+        body["image"] = json!({ "url": inputs[0].data_uri(), "type": "image_url" });
+        post_json(&p.name, &format!("{}/images/edits", p.base()), &auth(p)?, &body)?
+    } else {
+        // OpenAI-style edits: the same fields as a form, with the pictures as files (GPT image
+        // models take several as image[]; older and compatible servers one as image)
+        let field = if p.kind == ProviderKind::Openai { "image[]" } else { "image" };
+        let mut parts: Vec<Part> = Vec::new();
+        if let Value::Object(m) = &body {
+            for (k, v) in m {
+                parts.push(Part::Text(k, v.as_str().map_or_else(|| v.to_string(), String::from)));
+            }
+        }
+        let take = if p.kind == ProviderKind::Openai { inputs.len() } else { 1 };
+        parts.extend(inputs.iter().take(take).map(|i| Part::File(field, i)));
+        post_multipart(&p.name, &format!("{}/images/edits", p.base()), &auth(p)?, &parts)?
+    };
     let items = resp.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
     if items.is_empty() {
         return Err(GenError::Failed(format!("{} returned no images", p.name)));
@@ -65,7 +85,21 @@ pub(crate) fn sora(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> R
     let model = p.model(r)?;
     let headers = auth(p)?;
     let body = json!({ "model": model, "prompt": r.prompt, "seconds": sora_seconds(r.seconds), "size": sora_size(r.aspect) });
-    let job = post_json(&p.name, &format!("{}/videos", p.base()), &headers, &body)?;
+    let inputs = r.inputs()?;
+    let job = match inputs.first() {
+        None => post_json(&p.name, &format!("{}/videos", p.base()), &headers, &body)?,
+        // the first frame, as a file (Sora wants it at the video's size)
+        Some(first) => {
+            let mut parts: Vec<Part> = Vec::new();
+            if let Value::Object(m) = &body {
+                for (k, v) in m {
+                    parts.push(Part::Text(k, v.as_str().map_or_else(|| v.to_string(), String::from)));
+                }
+            }
+            parts.push(Part::File("input_reference", first));
+            post_multipart(&p.name, &format!("{}/videos", p.base()), &headers, &parts)?
+        }
+    };
     let id = job.get("id").and_then(Value::as_str).ok_or_else(|| GenError::Failed(format!("{} didn't return a job id", p.name)))?.to_string();
     let url = format!("{}/videos/{id}", p.base());
     poll(VIDEO_LIMIT, Duration::from_secs(5), || {
@@ -91,6 +125,9 @@ pub(crate) fn xai_video(p: &Provider, r: &Request, status: &mut dyn FnMut(&str))
     let mut body = json!({ "model": model, "prompt": r.prompt });
     if let Some(s) = r.seconds {
         body["duration"] = json!(s.clamp(1, 15));
+    }
+    if let Some(first) = r.inputs()?.first() {
+        body["image"] = json!({ "url": first.data_uri() });
     }
     let job = post_json(&p.name, &format!("{}/videos/generations", p.base()), &headers, &body)?;
     let id = job

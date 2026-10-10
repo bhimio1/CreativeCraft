@@ -43,6 +43,8 @@ pub enum GenError {
     Failed(String),
     #[error("gave up waiting after {0} minutes; the job may still finish on the service")]
     Timeout(u64),
+    #[error("stopped")]
+    Cancelled,
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("{0}")]
@@ -117,6 +119,67 @@ pub struct Request {
     pub seconds: Option<u32>,
     #[serde(default)]
     pub seed: Option<u64>,
+    /// Pictures to start from: an image to edit or restyle, or (video) to animate. Paths to
+    /// files the caller has checked it may send.
+    #[serde(default)]
+    pub images: Vec<std::path::PathBuf>,
+    /// How much to change a starting picture, 1–100, where the service lets you choose (local
+    /// diffusion: the denoising strength). Unset: 60.
+    #[serde(default)]
+    pub strength: Option<u8>,
+}
+
+/// A starting picture, read from disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputImage {
+    pub bytes: Vec<u8>,
+    pub mime: &'static str,
+    pub name: String,
+}
+
+impl InputImage {
+    pub fn data_uri(&self) -> String {
+        use base64::Engine as _;
+        format!("data:{};base64,{}", self.mime, base64::engine::general_purpose::STANDARD.encode(&self.bytes))
+    }
+    pub fn base64(&self) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(&self.bytes)
+    }
+}
+
+/// Largest starting picture sent (services cap uploads at 20–50 MB).
+const MAX_INPUT: u64 = 20 * 1024 * 1024;
+
+impl Request {
+    /// The starting pictures, read and checked.
+    pub(crate) fn inputs(&self) -> Result<Vec<InputImage>, GenError> {
+        self.images
+            .iter()
+            .map(|path| {
+                let shown = path.display();
+                let meta = std::fs::metadata(path).map_err(|e| GenError::Config(format!("can't read the starting picture {shown}: {e}")))?;
+                if meta.len() > MAX_INPUT {
+                    return Err(GenError::Config(format!("the starting picture {shown} is over 20 MB; use a smaller copy")));
+                }
+                let bytes = std::fs::read(path)?;
+                let mime = match sniff_ext(&bytes) {
+                    "png" => "image/png",
+                    "jpg" => "image/jpeg",
+                    "webp" => "image/webp",
+                    "gif" => "image/gif",
+                    _ => return Err(GenError::Config(format!("{shown} isn't a PNG, JPEG, WebP or GIF picture"))),
+                };
+                let name = path.file_name().map_or_else(|| "image".into(), |n| n.to_string_lossy().into_owned());
+                Ok(InputImage { bytes, mime, name })
+            })
+            .collect()
+    }
+
+    /// `strength` as 0.0–1.0.
+    pub(crate) fn denoise(&self) -> f64 {
+        f64::from(self.strength.unwrap_or(60).clamp(1, 100)) / 100.0
+    }
 }
 
 fn one() -> u32 {
@@ -281,8 +344,52 @@ fn redact(p: &Provider, e: GenError) -> GenError {
     GenError::Failed(e.to_string().replace(key, "[your key]"))
 }
 
+/// Stops a generation started with [`generate_cancellable`] from another thread. Waiting stops
+/// at once; services that can (ComfyUI, Stable Diffusion WebUI, Replicate, fal) are told to stop
+/// the job too, so it stops running and billing.
+#[derive(Debug, Clone, Default)]
+pub struct Cancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancel {
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+thread_local! {
+    /// The running generation's stop flag, so the polling loops deep in each adapter see it.
+    static CANCEL: std::cell::RefCell<Option<Cancel>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The current generation's stop flag (on this thread).
+pub(crate) fn current_cancel() -> Option<Cancel> {
+    CANCEL.with(|c| c.borrow().clone())
+}
+
+/// `Err(Cancelled)` once the current generation has been stopped.
+pub(crate) fn check_cancel() -> Result<(), GenError> {
+    if current_cancel().is_some_and(|c| c.is_cancelled()) { Err(GenError::Cancelled) } else { Ok(()) }
+}
+
 /// Make what `r` asks for with provider `p`. `status` hears progress ("queued", "45%", …).
 pub fn generate(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Output>, GenError> {
+    generate_cancellable(p, r, status, &Cancel::default())
+}
+
+/// [`generate`], stoppable with `cancel` from another thread.
+pub fn generate_cancellable(p: &Provider, r: &Request, status: &mut dyn FnMut(&str), cancel: &Cancel) -> Result<Vec<Output>, GenError> {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CANCEL.with(|c| *c.borrow_mut() = None);
+        }
+    }
+    CANCEL.with(|c| *c.borrow_mut() = Some(cancel.clone()));
+    let _reset = Reset;
+    check_cancel()?;
     run(p, r, status).map_err(|e| redact(p, e))
 }
 
@@ -292,6 +399,9 @@ fn run(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Result<Vec<Ou
     }
     let mut r = r.clone();
     r.count = if r.kind == Kind::Video { 1 } else { r.count.clamp(1, 4) };
+    if !r.images.is_empty() && p.kind == ProviderKind::Automatic1111 && r.kind == Kind::Video {
+        return Err(GenError::Config(format!("{} doesn't make video", p.name)));
+    }
     match (p.kind, r.kind) {
         (ProviderKind::Openai | ProviderKind::OpenaiCompatible | ProviderKind::Xai, Kind::Image) => openai::image(p, &r),
         (ProviderKind::Openai, Kind::Video) => openai::sora(p, &r, status),

@@ -57,8 +57,13 @@ pub(crate) struct GenerateState {
     count: u32,
     seconds: u32,
     seed: String,
+    /// A picture to start from (edit, restyle, or a video's first frame), and how much to change it.
+    start: Option<PathBuf>,
+    strength: u8,
     /// While a generation runs: what the service says, and when it started.
     running: Option<(String, f64)>,
+    /// Stops the running generation.
+    cancel: creativecraft_engine::generation::Cancel,
     error: Option<String>,
     /// The files the last generation made, highlighted in the gallery.
     fresh: Vec<PathBuf>,
@@ -87,7 +92,10 @@ impl Default for GenerateState {
             count: 1,
             seconds: 8,
             seed: String::new(),
+            start: None,
+            strength: 60,
             running: None,
+            cancel: Default::default(),
             error: None,
             fresh: Vec::new(),
             items: Vec::new(),
@@ -166,7 +174,8 @@ impl CreativeCraftApp {
                             self.generate.selected = files.first().cloned();
                             self.generate.fresh = files;
                         }
-                        Err(e) => self.generate.error = Some(e),
+                        // stopping is what was asked for, not an error
+                        Err(e) => self.generate.error = (e != "Stopped").then_some(e),
                     }
                     self.generate.scanned = false;
                     self.projects.mark_stale();
@@ -196,9 +205,15 @@ impl CreativeCraftApp {
             return;
         }
         self.generate.thumbs.insert(path.to_path_buf(), Thumb::Loading);
-        let (path, tx, ctx) = (path.to_path_buf(), self.generate.tx.clone(), self.ctx.clone());
+        let (path, tx, ctx, projects) = (path.to_path_buf(), self.generate.tx.clone(), self.ctx.clone(), self.draft.projects_dir.clone());
         std::thread::spawn(move || {
-            let img = decode(&path);
+            let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            // videos: a still taken by ffmpeg when it's installed
+            let img = if matches!(ext.as_str(), "mp4" | "webm" | "mov" | "mkv") {
+                creativecraft_engine::generate::video_still(&projects, &path).and_then(|still| decode(&still))
+            } else {
+                decode(&path)
+            };
             let _ = tx.send(Reply::Thumb(path, img));
             ctx.request_repaint();
         });
@@ -215,6 +230,8 @@ impl CreativeCraftApp {
             count: if g.kind == Kind::Image { g.count } else { 1 },
             seconds: (g.kind == Kind::Video).then_some(g.seconds),
             seed: g.seed.trim().parse().ok(),
+            images: g.start.iter().cloned().collect(),
+            strength: g.start.as_ref().map(|_| g.strength),
         };
         let provider = (!g.provider.is_empty()).then(|| g.provider.clone());
         let job = match GenerationJob::new(&self.draft, &request, provider.as_deref()) {
@@ -227,14 +244,19 @@ impl CreativeCraftApp {
         let now = self.ctx.input(|i| i.time);
         self.generate.running = Some((format!("asking {}…", job.provider.name), now));
         self.generate.error = None;
+        let cancel = creativecraft_engine::generation::Cancel::default();
+        self.generate.cancel = cancel.clone();
         let (tx, ctx) = (self.generate.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
-            let result = job.run(&mut |e| {
-                if let Event::Generate(s) = e {
-                    let _ = tx.send(Reply::Status(s));
-                    ctx.request_repaint();
-                }
-            });
+            let result = job.run_cancellable(
+                &mut |e| {
+                    if let Event::Generate(s) = e {
+                        let _ = tx.send(Reply::Status(s));
+                        ctx.request_repaint();
+                    }
+                },
+                &cancel,
+            );
             let _ = tx.send(Reply::Done(result.map(|g| g.files).map_err(|e| e.to_string())));
             ctx.request_repaint();
         });
@@ -243,6 +265,10 @@ impl CreativeCraftApp {
     pub(crate) fn generate_page(&mut self, ui: &mut egui::Ui) {
         let t = theme::Tokens::get();
         self.generate_pump();
+        // a picture dropped on the page becomes the one to start from
+        if let Some(path) = ui.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty())) {
+            self.generate.start = Some(path);
+        }
         ui.horizontal(|ui| {
             ui.label(RichText::new("Generate").size(22.0).strong().color(t.ink));
         });
@@ -327,6 +353,8 @@ impl CreativeCraftApp {
         } else if ui.add(egui::Button::new(RichText::new("+ What to avoid").size(12.0).color(t.muted)).frame(false)).clicked() {
             self.generate.show_negative = true;
         }
+        ui.add_space(10.0);
+        self.generate_start_picture(ui);
         ui.add_space(12.0);
 
         // the service, among those that can make this kind
@@ -397,15 +425,75 @@ impl CreativeCraftApp {
         if let Some((status, since)) = &self.generate.running {
             let secs = (ui.input(|i| i.time) - since).max(0.0) as u64;
             ui.add_space(8.0);
+            let stopping = self.generate.cancel.is_cancelled();
             ui.horizontal(|ui| {
                 ui.spinner();
+                let status = if stopping { "stopping…" } else { status.as_str() };
                 ui.label(RichText::new(format!("{status}  ·  {}:{:02}", secs / 60, secs % 60)).size(12.0).color(t.muted));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(!stopping, theme::secondary("Stop"))
+                        .on_hover_text("Stop waiting, and stop the job on the service where it allows that")
+                        .clicked()
+                    {
+                        self.generate.cancel.cancel();
+                    }
+                });
             });
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         }
         if let Some(e) = &self.generate.error {
             ui.add_space(8.0);
             ui.label(RichText::new(e).size(12.0).color(t.danger));
+        }
+    }
+
+    /// Open the Generate page starting from `path` (from Stock or elsewhere).
+    pub(crate) fn generate_from(&mut self, path: &Path) {
+        self.generate.start = Some(path.to_path_buf());
+        self.generate.kind = Kind::Image;
+        self.page = Page::Generate;
+    }
+
+    /// "Start from a picture": the chosen one as a thumbnail with a way to clear it, and how much
+    /// to change it; or how to choose one.
+    fn generate_start_picture(&mut self, ui: &mut egui::Ui) {
+        let t = theme::Tokens::get();
+        let video = self.generate.kind == Kind::Video;
+        let Some(path) = self.generate.start.clone() else {
+            let hint = if video {
+                "Drop a picture here to use as the first frame, or right-click a result → Start from this."
+            } else {
+                "Drop a picture here to edit or restyle it, or right-click a result → Start from this."
+            };
+            ui.label(RichText::new(hint).size(12.0).color(t.muted));
+            return;
+        };
+        ui.label(RichText::new(if video { "First frame" } else { "Start from" }).size(13.0).color(t.muted));
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(vec2(56.0, 56.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 6.0, t.bar);
+            self.request_thumb(&path);
+            if let Some(Thumb::Ready(tex)) = self.generate.thumbs.get(&path) {
+                let s = tex.size_vec2();
+                let img = Rect::from_center_size(rect.center(), s * (rect.width() / s.x).min(rect.height() / s.y));
+                ui.painter().image(tex.id(), img, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+            }
+            ui.vertical(|ui| {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                ui.label(RichText::new(name).size(12.0).color(t.ink)).on_hover_text(path.display().to_string());
+                if ui.add(egui::Button::new(RichText::new("Remove").size(12.0).color(t.muted)).frame(false)).clicked() {
+                    self.generate.start = None;
+                }
+            });
+        });
+        if !video {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("How much to change").size(12.0).color(t.muted));
+                ui.add(egui::Slider::new(&mut self.generate.strength, 1..=100).suffix("%")).on_hover_text(
+                    "Where the service lets you choose: low keeps the picture close, high changes more. Editing models follow your words instead.",
+                );
+            });
         }
     }
 
@@ -446,10 +534,7 @@ impl CreativeCraftApp {
         let (rect, resp) = ui.allocate_exact_size(vec2(w, w), egui::Sense::click());
         let fresh = self.generate.fresh.contains(&item.path);
         ui.painter().rect_filled(rect, 10.0, if resp.hovered() { t.row_hover } else { t.row });
-        if item.video {
-            ui.painter().circle_filled(rect.center(), 22.0, t.bar);
-            ui.painter().text(rect.center() + vec2(2.0, 0.0), egui::Align2::CENTER_CENTER, "▶", egui::FontId::proportional(20.0), t.ink);
-        } else if ui.is_rect_visible(rect) {
+        if ui.is_rect_visible(rect) {
             self.request_thumb(&item.path);
             match self.generate.thumbs.get(&item.path) {
                 Some(Thumb::Ready(tex)) => {
@@ -458,10 +543,15 @@ impl CreativeCraftApp {
                     let img = Rect::from_center_size(inner.center(), s * (inner.width() / s.x).min(inner.height() / s.y));
                     ui.painter().image(tex.id(), img, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
                 }
-                Some(Thumb::Failed) => {
+                // a video without a still (no ffmpeg) is just the play badge below
+                Some(Thumb::Failed) if !item.video => {
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "can't preview", egui::FontId::proportional(12.0), t.muted);
                 }
                 _ => {}
+            }
+            if item.video {
+                ui.painter().circle_filled(rect.center(), 22.0, t.bar.gamma_multiply(0.85));
+                ui.painter().text(rect.center() + vec2(2.0, 0.0), egui::Align2::CENTER_CENTER, "▶", egui::FontId::proportional(20.0), t.ink);
             }
         }
         if fresh || self.generate.selected.as_ref() == Some(&item.path) {
@@ -475,6 +565,10 @@ impl CreativeCraftApp {
             self.open_media_file(&item.path);
         }
         resp.context_menu(|ui| {
+            if !item.video && ui.button("Start from this").clicked() {
+                self.generate.start = Some(item.path.clone());
+                ui.close();
+            }
             if !item.prompt.is_empty() && ui.button("Use this prompt").clicked() {
                 self.generate.prompt = item.prompt.clone();
                 ui.close();

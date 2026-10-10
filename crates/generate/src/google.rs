@@ -47,12 +47,15 @@ pub(crate) fn image(p: &Provider, r: &Request) -> Result<Vec<Output>, GenError> 
     let model = p.model(r)?;
     let url = format!("{}/models/{model}:generateContent", p.base());
     let headers = key(p)?;
+    // starting pictures go in before the instructions
+    let mut parts: Vec<Value> = r.inputs()?.iter().map(|i| json!({ "inlineData": { "mimeType": i.mime, "data": i.base64() } })).collect();
+    parts.push(json!({ "text": r.prompt }));
     let body = |with_aspect: bool| {
         let mut config = json!({ "responseModalities": ["TEXT", "IMAGE"] });
         if with_aspect {
             config["imageConfig"] = json!({ "aspectRatio": r.aspect.ratio() });
         }
-        json!({ "contents": [{ "parts": [{ "text": r.prompt }] }], "generationConfig": config })
+        json!({ "contents": [{ "parts": parts }], "generationConfig": config })
     };
     let mut out = Vec::new();
     // one image per call
@@ -95,8 +98,12 @@ pub(crate) fn veo(p: &Provider, r: &Request, status: &mut dyn FnMut(&str)) -> Re
     let model = p.model(r)?;
     let headers = key(p)?;
     let aspect = if r.aspect == Aspect::Portrait { "9:16" } else { "16:9" };
+    let mut instance = json!({ "prompt": r.prompt });
+    if let Some(first) = r.inputs()?.first() {
+        instance["image"] = json!({ "bytesBase64Encoded": first.base64(), "mimeType": first.mime });
+    }
     let body = json!({
-        "instances": [{ "prompt": r.prompt }],
+        "instances": [instance],
         "parameters": { "aspectRatio": aspect, "durationSeconds": veo_seconds(r.seconds) },
     });
     let op = post_json(&p.name, &format!("{}/models/{model}:predictLongRunning", p.base()), &headers, &body)?;

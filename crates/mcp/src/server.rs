@@ -80,23 +80,26 @@ fn hub_tools() -> Vec<Value> {
             "max_width": { "type": "integer", "minimum": 1 }
         }, "required": ["source", "id"] } }),
         json!({ "name": "generation_providers", "description": "List the AI image and video generation services the user has set up (id, name, whether it runs locally, its models, which is the default). Never shows keys.", "inputSchema": { "type": "object", "properties": {} } }),
-        json!({ "name": "generate_image", "description": "Make images from a text prompt with the user's AI generation service and save them in the projects folder under Generated/<date>/. Cloud services bill the user's own account: generate only what the user asked for. Can take a minute. Returns the saved paths.", "inputSchema": { "type": "object", "properties": {
+        json!({ "name": "generate_image", "description": "Make images from a text prompt, or edit pictures from the projects folder, with the user's AI generation service and save them in the projects folder under Generated/<date>/. Cloud services bill the user's own account: generate only what the user asked for. Can take a minute. Returns the saved paths.", "inputSchema": { "type": "object", "properties": {
             "prompt": { "type": "string" },
             "negative": { "type": "string", "description": "What to avoid, where the service supports it" },
             "aspect": { "type": "string", "enum": ["square", "landscape", "portrait"] },
             "count": { "type": "integer", "minimum": 1, "maximum": 4 },
             "provider": { "type": "string", "description": "A service id from generation_providers; omit for the user's default" },
             "model": { "type": "string", "description": "Override the service's model; omit for the user's choice" },
-            "seed": { "type": "integer", "minimum": 0 }
+            "seed": { "type": "integer", "minimum": 0 },
+            "images": { "type": "array", "items": { "type": "string" }, "description": "Pictures in the projects folder to start from (paths relative to it): to edit, restyle or combine them. Omit to make something new." },
+            "strength": { "type": "integer", "minimum": 1, "maximum": 100, "description": "How much to change the starting picture, where the service lets you choose (default 60)" }
         }, "required": ["prompt"] } }),
-        json!({ "name": "generate_video", "description": "Make a short video from a text prompt with the user's AI generation service and save it in the projects folder under Generated/<date>/. Video costs far more than images on cloud services, which bill the user's own account: only when the user asked for a video. Can take several minutes. Returns the saved path.", "inputSchema": { "type": "object", "properties": {
+        json!({ "name": "generate_video", "description": "Make a short video from a text prompt (optionally starting from a picture) with the user's AI generation service and save it in the projects folder under Generated/<date>/. Video costs far more than images on cloud services, which bill the user's own account: only when the user asked for a video. Can take several minutes. Returns the saved path.", "inputSchema": { "type": "object", "properties": {
             "prompt": { "type": "string" },
             "negative": { "type": "string" },
             "aspect": { "type": "string", "enum": ["landscape", "portrait", "square"] },
             "seconds": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Length, rounded to what the service offers" },
             "provider": { "type": "string" },
             "model": { "type": "string" },
-            "seed": { "type": "integer", "minimum": 0 }
+            "seed": { "type": "integer", "minimum": 0 },
+            "images": { "type": "array", "items": { "type": "string" }, "description": "A picture in the projects folder (path relative to it) to use as the first frame. Omit to make something new." }
         }, "required": ["prompt"] } }),
         json!({ "name": "app_instances", "description": "List the running app instances: instance id, app id and tool count.", "inputSchema": { "type": "object", "properties": {} } }),
         json!({ "name": "app_close_instance", "description": "Stop one app instance's automation. Headless: anything unsaved is lost, so save first. A visible window stays open for the user.", "inputSchema": { "type": "object", "properties": { "instance": { "type": "string", "description": "Instance id from app_open_instance or app_instances" } }, "required": ["instance"] } }),
@@ -259,7 +262,7 @@ impl<B: HubBackend> HubServer<B> {
             "generate_image" | "generate_video" => {
                 let mut request = serde_json::Map::new();
                 request.insert("kind".into(), json!(if name == "generate_image" { "image" } else { "video" }));
-                for k in ["prompt", "negative", "model", "aspect", "count", "seconds", "seed"] {
+                for k in ["prompt", "negative", "model", "aspect", "count", "seconds", "seed", "images", "strength"] {
                     if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
                         request.insert(k.into(), v.clone());
                     }

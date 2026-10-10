@@ -404,6 +404,7 @@ impl creativecraft_mcp::HubBackend for Session {
             return Err("The user has turned off AI generation for agents (Settings → AI generation).".into());
         }
         let request: creativecraft_generate::Request = serde_json::from_value(request).map_err(|e| format!("bad arguments: {e}"))?;
+        generate::check_agent_images(&self.settings.projects_dir, &request.images).map_err(|e| e.to_string())?;
         self.execute(Command::Generate { request, provider: provider.map(String::from) }, &mut |_| {}).map_err(|e| e.to_string())
     }
 }

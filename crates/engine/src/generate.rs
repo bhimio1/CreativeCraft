@@ -3,7 +3,7 @@
 //! files, and they land in `<projects>/Generated/<date>/` with a sidecar describing how.
 
 use crate::{EngineError, Event, GenerationSettings, Session, Settings};
-use creativecraft_generate::{Kind, Provider, Request};
+use creativecraft_generate::{Cancel, Kind, Provider, Request};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -142,20 +142,32 @@ impl GenerationJob {
         if request.prompt.trim().is_empty() {
             return Err(EngineError::Generate("describe what to make first".into()));
         }
-        Ok(GenerationJob {
-            provider: settings.generation.provider(provider, request.kind)?.clone(),
-            request: request.clone(),
-            projects_dir: settings.projects_dir.clone(),
-        })
+        let mut request = request.clone();
+        // starting pictures may be given relative to the projects folder
+        for path in &mut request.images {
+            if path.is_relative() {
+                *path = settings.projects_dir.join(&*path);
+            }
+        }
+        Ok(GenerationJob { provider: settings.generation.provider(provider, request.kind)?.clone(), request, projects_dir: settings.projects_dir.clone() })
     }
 
     /// Make the images or video and save them under `Generated/<date>/`, each with a sidecar
     /// `<file>.json` recording how it was made.
     pub fn run(&self, events: &mut dyn FnMut(Event)) -> Result<Generated, EngineError> {
+        self.run_cancellable(events, &Cancel::default())
+    }
+
+    /// [`run`](Self::run), stoppable from another thread with `cancel`. Results that arrive
+    /// anyway (the service finished as it was stopped) are still saved: they may have been paid for.
+    pub fn run_cancellable(&self, events: &mut dyn FnMut(Event), cancel: &Cancel) -> Result<Generated, EngineError> {
         let (p, r) = (&self.provider, &self.request);
         events(Event::Generate(format!("asking {}…", p.name)));
-        let outputs = creativecraft_generate::generate(p, r, &mut |s| events(Event::Generate(format!("{}: {s}", p.name))))
-            .map_err(|e| EngineError::Generate(e.to_string()))?;
+        let outputs =
+            creativecraft_generate::generate_cancellable(p, r, &mut |s| events(Event::Generate(format!("{}: {s}", p.name))), cancel).map_err(|e| match e {
+                creativecraft_generate::GenError::Cancelled => EngineError::Generate("Stopped".into()),
+                e => EngineError::Generate(e.to_string()),
+            })?;
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let (day, time, created) = stamps(now);
         let dir = self.projects_dir.join(GENERATED_DIR).join(day);
@@ -168,6 +180,8 @@ impl GenerationJob {
             let sidecar = json!({
                 "prompt": r.prompt, "negative": r.negative, "kind": r.kind, "provider": p.name, "provider_id": p.id,
                 "model": o.model, "aspect": r.aspect, "seconds": r.seconds, "seed": r.seed, "created": created,
+                "started_from": r.images.iter().map(|i| i.strip_prefix(&self.projects_dir).unwrap_or(i).display().to_string()).collect::<Vec<_>>(),
+                "strength": r.strength,
             });
             write_atomic(&sidecar_path(&path), &serde_json::to_vec_pretty(&sidecar).map_err(std::io::Error::other)?)?;
             files.push(path);
@@ -175,6 +189,50 @@ impl GenerationJob {
         let rel: Vec<String> = files.iter().map(|f| f.strip_prefix(&self.projects_dir).unwrap_or(f).display().to_string()).collect();
         Ok(Generated { message: format!("Saved {} with {}", rel.join(", "), p.name), files })
     }
+}
+
+/// A still from a video, for the gallery: one frame taken by the user's own `ffmpeg` (CreativeCraft
+/// has no video decoder of its own) and cached as a PNG under `<projects>/.creativecraft/thumbs/`,
+/// which never syncs. `None` when ffmpeg isn't installed or can't read the file.
+pub fn video_still(projects: &Path, video: &Path) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let meta = std::fs::metadata(video).ok()?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (video, meta.len(), meta.modified().ok()).hash(&mut h);
+    let dir = projects.join(".creativecraft").join("thumbs");
+    let out = dir.join(format!("{:016x}.png", h.finish()));
+    if out.is_file() {
+        return Some(out);
+    }
+    let ffmpeg = creativecraft_platform::find_on_path("ffmpeg")?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let tmp = out.with_extension("part.png");
+    let mut cmd = creativecraft_platform::HostCommand::new(ffmpeg);
+    // a frame half a second in (past a fade from black), 384 px wide
+    cmd.args(["-v", "error", "-y", "-ss", "0.5", "-i"]).arg(video).args(["-frames:v", "1", "-vf", "scale=384:-2"]).arg(&tmp);
+    let mut std_cmd = cmd.into_std();
+    std_cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    let ok = std_cmd.status().is_ok_and(|s| s.success()) && tmp.is_file();
+    if !ok {
+        let _ = std::fs::remove_file(&tmp);
+        return None;
+    }
+    std::fs::rename(&tmp, &out).ok()?;
+    Some(out)
+}
+
+/// Starting pictures an agent gives must be files inside the projects folder (relative paths are
+/// taken from there), so an agent can't send other files on this computer to a cloud service.
+pub fn check_agent_images(projects: &Path, images: &[PathBuf]) -> Result<(), EngineError> {
+    let root = projects.canonicalize().map_err(|e| EngineError::Generate(format!("the projects folder can't be read: {e}")))?;
+    for p in images {
+        let full = if p.is_relative() { projects.join(p) } else { p.clone() };
+        let real = full.canonicalize().map_err(|_| EngineError::Generate(format!("no picture at {} in the projects folder", p.display())))?;
+        if !real.starts_with(&root) || !real.is_file() {
+            return Err(EngineError::Generate(format!("{} isn't a file in the projects folder; agents can only start from pictures there", p.display())));
+        }
+    }
+    Ok(())
 }
 
 /// `x.png` → `x.png.json`: how a generated file was made.
@@ -279,6 +337,8 @@ mod tests {
             count: 1,
             seconds: None,
             seed: Some(7),
+            images: Vec::new(),
+            strength: None,
         };
         let out = s.execute(crate::Command::Generate { request, provider: None }, &mut |_| {}).unwrap();
         assert!(out.starts_with("Saved Generated/") && out.contains("a-red-kite-"), "{out}");
@@ -290,6 +350,38 @@ mod tests {
         let side: Value = serde_json::from_slice(&std::fs::read(day.join(&names[1])).unwrap()).unwrap();
         assert_eq!(side["prompt"], "A red kite");
         assert_eq!(side["seed"], 7);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn agents_start_only_from_pictures_in_the_projects_folder() {
+        let root = std::env::temp_dir().join(format!("cc-gen-agentimg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("projects/art")).unwrap();
+        std::fs::write(root.join("projects/art/a.png"), b"x").unwrap();
+        std::fs::write(root.join("secret.png"), b"x").unwrap();
+        let projects = root.join("projects");
+        assert!(check_agent_images(&projects, &[PathBuf::from("art/a.png")]).is_ok());
+        assert!(check_agent_images(&projects, &[projects.join("art/a.png")]).is_ok());
+        assert!(check_agent_images(&projects, &[PathBuf::from("../secret.png")]).is_err(), "no climbing out");
+        assert!(check_agent_images(&projects, &[root.join("secret.png")]).is_err());
+        assert!(check_agent_images(&projects, &[PathBuf::from("art")]).is_err(), "a folder isn't a picture");
+        assert!(check_agent_images(&projects, &[PathBuf::from("art/missing.png")]).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn video_stills_need_ffmpeg_and_are_cached() {
+        let root = std::env::temp_dir().join(format!("cc-gen-still-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let bogus = root.join("broken.mp4");
+        std::fs::write(&bogus, b"not a video").unwrap();
+        // ffmpeg (if installed) can't read it, and nothing half-written is left behind
+        assert!(video_still(&root, &bogus).is_none());
+        let thumbs = root.join(".creativecraft/thumbs");
+        assert!(std::fs::read_dir(&thumbs).map_or(true, |d| d.count() == 0));
+        assert!(video_still(&root, &root.join("missing.mp4")).is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 }
