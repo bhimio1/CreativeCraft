@@ -92,6 +92,8 @@ pub enum Command {
     },
     /// Check that a generation service can be reached and accepts its key.
     TestGenerator(String),
+    /// Move a generated file (and its note) to the projects folder's trash.
+    TrashGenerated(PathBuf),
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -116,6 +118,7 @@ impl Command {
             Command::StockDownload { .. } => "stock.download",
             Command::Generate { .. } => "generate.run",
             Command::TestGenerator(_) => "generate.test",
+            Command::TrashGenerated(_) => "generate.trash",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -288,6 +291,7 @@ impl Session {
             Command::StockDownload { source, id, size, max_width } => self.stock_download(&source, &id, size.as_deref(), max_width),
             Command::Generate { request, provider } => self.generate(&request, provider.as_deref(), events),
             Command::TestGenerator(id) => self.test_generator(&id),
+            Command::TrashGenerated(file) => generate::trash_generated(&self.settings.projects_dir, &file),
             Command::TestCloud => {
                 let mut store = self.cloud_store()?;
                 Ok(sync::test_connection(store.as_mut())?)

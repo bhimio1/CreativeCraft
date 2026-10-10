@@ -208,6 +208,11 @@ impl CreativeCraftApp {
         }
     }
 
+    /// Look at Generated/ again (after a command changed it).
+    pub(crate) fn generate_mark_stale(&mut self) {
+        self.generate.scanned = false;
+    }
+
     fn request_thumb(&mut self, path: &Path) {
         if self.generate.thumbs.contains_key(path) {
             return;
@@ -652,6 +657,10 @@ impl CreativeCraftApp {
             }
             if ui.button("Copy path").clicked() {
                 ui.ctx().copy_text(item.path.display().to_string());
+                ui.close();
+            }
+            if ui.button("Move to trash").clicked() {
+                self.run("Move to trash", Command::TrashGenerated(item.path.clone()));
                 ui.close();
             }
             if ui.button("Show in folder").clicked() {

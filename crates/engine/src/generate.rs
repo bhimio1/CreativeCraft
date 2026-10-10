@@ -192,6 +192,30 @@ impl GenerationJob {
     }
 }
 
+/// Move a generated file and its sidecar into the projects folder's trash
+/// (`.creativecraft/trash/<time>/<path>`, where sync puts what it removes). Only files under
+/// `Generated/`.
+pub fn trash_generated(projects: &Path, file: &Path) -> Result<String, EngineError> {
+    let root = projects.join(GENERATED_DIR).canonicalize().map_err(|_| EngineError::Generate("there's nothing generated yet".into()))?;
+    let real = file.canonicalize().map_err(|_| EngineError::Generate(format!("{} is already gone", file.display())))?;
+    if !real.starts_with(&root) || !real.is_file() {
+        return Err(EngineError::Generate(format!("{} isn't a generated file", file.display())));
+    }
+    let projects_real = projects.canonicalize()?;
+    let rel = real.strip_prefix(&projects_real).unwrap_or(&real).to_path_buf();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let dest = projects.join(".creativecraft").join("trash").join(stamp.to_string()).join(&rel);
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::rename(&real, &dest)?;
+    let side = sidecar_path(&real);
+    if side.is_file() {
+        std::fs::rename(&side, sidecar_path(&dest))?;
+    }
+    Ok(format!("Moved {} to the trash", rel.display()))
+}
+
 /// A still from a video, for the gallery: one frame taken by the user's own `ffmpeg` (CreativeCraft
 /// has no video decoder of its own) and cached as a PNG under `<projects>/.creativecraft/thumbs/`,
 /// which never syncs. `None` when ffmpeg isn't installed or can't read the file.
@@ -387,5 +411,32 @@ mod tests {
         assert!(std::fs::read_dir(&thumbs).map_or(true, |d| d.count() == 0));
         assert!(video_still(&root, &root.join("missing.mp4")).is_none());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn trashing_moves_the_file_and_its_note_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!("cc-gen-trash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let day = root.join("Generated/2026-10-10");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(day.join("a.png"), b"x").unwrap();
+        std::fs::write(day.join("a.png.json"), b"{}").unwrap();
+        std::fs::write(root.join("mine.kra"), b"x").unwrap();
+        assert!(trash_generated(&root, &root.join("mine.kra")).is_err(), "only generated files");
+        let msg = trash_generated(&root, &day.join("a.png")).unwrap();
+        assert!(msg.contains("Generated/2026-10-10/a.png"), "{msg}");
+        assert!(!day.join("a.png").exists() && !day.join("a.png.json").exists());
+        let trashed: Vec<_> = walk(&root.join(".creativecraft/trash"));
+        assert!(trashed.iter().any(|p| p.ends_with("Generated/2026-10-10/a.png")));
+        assert!(trashed.iter().any(|p| p.ends_with("Generated/2026-10-10/a.png.json")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn walk(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if e.path().is_dir() { out.extend(walk(&e.path())) } else { out.push(e.path()) }
+        }
+        out
     }
 }

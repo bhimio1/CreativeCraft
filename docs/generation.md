@@ -132,8 +132,9 @@ asks it for one frame and keeps it in `.creativecraft/thumbs/` in the projects f
 synced). Without ffmpeg, videos show a play symbol.
 
 The `.json` beside each file records the prompt, what to avoid, the service, the model, the
-shape, the seed and when it was made (UTC). Right-click a result on the Generate page and choose
-**Use this prompt** to start again from it.
+shape, the seed and when it was made (UTC). Right-click a result on the Generate page to **Use this prompt**, **Start from this**, or **Move
+to trash** (it goes to `.creativecraft/trash/` in the projects folder, with its note, like
+anything sync removes).
 
 ## Command line
 

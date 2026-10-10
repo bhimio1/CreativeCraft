@@ -302,6 +302,7 @@ impl CreativeCraftApp {
                         self.stock_downloaded(text);
                     }
                     self.projects.mark_stale();
+                    self.generate_mark_stale();
                     self.install_progress = None;
                     self.sync_progress = None;
                     let entry = match r {
