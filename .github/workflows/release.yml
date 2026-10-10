@@ -258,41 +258,8 @@ jobs:
             aur/.SRCINFO
 
   aur-publish:
-    name: Publish to the AUR
     needs: aur
-    runs-on: ubuntu-latest
-    env:
-      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
-    steps:
-      - name: Skip without an AUR key
-        if: env.HAS_AUR_KEY != 'true'
-        run: echo "::notice title=AUR::Set the AUR_SSH_PRIVATE_KEY secret to publish creativecraft-bin to the AUR automatically."
-
-      - uses: actions/download-artifact@v4
-        if: env.HAS_AUR_KEY == 'true'
-        with:
-          name: aur
-          path: aur
-
-      - name: Push to aur.archlinux.org
-        if: env.HAS_AUR_KEY == 'true'
-        shell: bash
-        env:
-          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          AUR_USERNAME: ${{ vars.AUR_USERNAME || 'CreativeCraft' }}
-          AUR_EMAIL: ${{ vars.AUR_EMAIL || 'bhima.work@gmail.com' }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$AUR_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
-          ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
-          # cloning a name that doesn't exist yet creates the package on first push
-          git clone ssh://aur@aur.archlinux.org/creativecraft-bin.git aur-repo
-          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
-          cd aur-repo
-          git config user.name "$AUR_USERNAME" && git config user.email "$AUR_EMAIL"
-          git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then echo "AUR already up to date"; exit 0; fi
-          git commit -m "Update to ${TAG#v}"
-          git push origin HEAD:master
+    uses: ./.github/workflows/aur-publish.yml
+    with:
+      tag: ${{ github.event.inputs.tag || github.ref_name }}
+    secrets: inherit

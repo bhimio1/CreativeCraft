@@ -1,0 +1,71 @@
+name: AUR publish
+
+# Pushes the creativecraft-bin PKGBUILD attached to a GitHub release to the AUR. The Release
+# workflow calls this after a release; run it by hand to retry a publish without rebuilding.
+# Needs the AUR_SSH_PRIVATE_KEY secret (the private half of a key added to your AUR account).
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose PKGBUILD to publish (e.g. v0.1.6)"
+        required: true
+
+jobs:
+  publish:
+    name: Publish to the AUR
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip without an AUR key
+        if: env.HAS_AUR_KEY != 'true'
+        run: echo "::notice title=AUR::Set the AUR_SSH_PRIVATE_KEY secret to publish creativecraft-bin to the AUR automatically."
+
+      - name: Fetch the release's PKGBUILD and make .SRCINFO
+        if: env.HAS_AUR_KEY == 'true'
+        run: |
+          mkdir -p aur
+          curl -fsSL --retry 3 -o aur/PKGBUILD "https://github.com/${{ github.repository }}/releases/download/${TAG}/creativecraft-bin.PKGBUILD"
+          packaging/aur/srcinfo.sh aur/PKGBUILD > aur/.SRCINFO
+          cat aur/.SRCINFO
+
+      # every failure below is also reported as an annotation, so it's readable without the log
+      - name: Push to aur.archlinux.org
+        if: env.HAS_AUR_KEY == 'true'
+        shell: bash
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME || 'CreativeCraft' }}
+          AUR_EMAIL: ${{ vars.AUR_EMAIL || 'bhima.work@gmail.com' }}
+        run: |
+          set -uo pipefail
+          fail() { echo "::error title=AUR::$1"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # tolerate keys pasted with Windows line endings or without the final newline
+          printf '%s\n' "$AUR_KEY" | tr -d '\r' > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          head -1 ~/.ssh/aur | grep -q -- '-----BEGIN' || fail "The AUR_SSH_PRIVATE_KEY secret doesn't look like a private key. Paste the whole contents of the aur_key file (not aur_key.pub), including the BEGIN and END lines."
+          pub=$(ssh-keygen -y -P '' -f ~/.ssh/aur 2>&1) || fail "The private key can't be read without a passphrase: ${pub//$'\n'/ }. Make the key with -N \"\" (no passphrase) and update the secret."
+          echo "Public key for this secret: $pub"
+          ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null || fail "Couldn't reach aur.archlinux.org over SSH."
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o BatchMode=yes"
+          auth=$(ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o BatchMode=yes aur@aur.archlinux.org help 2>&1)
+          if echo "$auth" | grep -qi "permission denied"; then
+            fail "The AUR rejected the key. Add this public key to your AUR account (My Account → SSH Public Key) and save: $pub"
+          fi
+          out=$(git clone ssh://aur@aur.archlinux.org/creativecraft-bin.git aur-repo 2>&1) || fail "git clone from the AUR failed: ${out//$'\n'/ }"
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git config user.name "$AUR_USERNAME" && git config user.email "$AUR_EMAIL"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then echo "::notice title=AUR::creativecraft-bin is already up to date"; exit 0; fi
+          git commit -qm "Update to ${TAG#v}"
+          out=$(git push origin HEAD:master 2>&1) || fail "Pushing to the AUR failed: ${out//$'\n'/ }"
+          echo "::notice title=AUR::Published creativecraft-bin ${TAG#v}: https://aur.archlinux.org/packages/creativecraft-bin"
