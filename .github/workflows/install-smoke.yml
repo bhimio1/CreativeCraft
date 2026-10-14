@@ -1,0 +1,89 @@
+name: Install smoke test
+
+# Installs real apps from their real GitHub releases with this branch's creativecraft-cli, on
+# Linux, macOS and Windows, then checks both executables, runs the app's CLI, and uninstalls.
+# Run it after catalog or installer changes: Actions → Install smoke test → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "App ids to install, space-separated"
+        default: "figcraft photocraft"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CREATIVECRAFT_HOME: ${{ github.workspace }}/cc-home
+      # raises GitHub's API rate limit for the release lookups
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: install-smoke
+      - name: Linux window-system headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - name: Build creativecraft-cli
+        run: cargo build -p creativecraft-cli
+
+      - name: Install, check, uninstall
+        shell: bash
+        run: |
+          set -uo pipefail
+          cc=target/debug/creativecraft-cli
+          py=$(command -v python3 || command -v python)
+          status=0
+          for app in ${{ inputs.apps }}; do
+            echo "::group::$app"
+            out=$("$cc" install "$app" 2>&1); code=$?
+            echo "$out"
+            if [ $code -ne 0 ]; then
+              echo "::error title=$app (${{ runner.os }})::install failed: $(echo "$out" | tail -3 | tr '\n' ' ')"
+              status=1; echo "::endgroup::"; continue
+            fi
+            # the registry says where the two executables went; both must exist, and the CLI must run
+            reg="$CREATIVECRAFT_HOME/data/apps/installed.json"
+            check=$("$py" - "$reg" "$app" <<'EOF'
+          import json, os, subprocess, sys
+          reg, app = sys.argv[1], sys.argv[2]
+          i = json.load(open(reg))["apps"][app]
+          problems = []
+          for k in ("gui", "cli"):
+              p = i.get(k)
+              if not p or not os.path.isfile(p):
+                  problems.append(f"{k} missing ({p})")
+          if i.get("cli") and os.path.isfile(i["cli"]):
+              r = subprocess.run([i["cli"], "--version"], capture_output=True, text=True, timeout=60)
+              line = f"cli --version: {(r.stdout or r.stderr).strip()[:200]}"
+              if r.returncode:
+                  problems.append(line)
+              else:
+                  print(line)
+          print(f"version {i['version']}; gui {i.get('gui')}; cli {i.get('cli')}")
+          if problems:
+              print("PROBLEMS: " + "; ".join(problems)); sys.exit(1)
+          EOF
+            ); code=$?
+            echo "$check"
+            if [ $code -ne 0 ]; then
+              echo "::error title=$app (${{ runner.os }})::$(echo "$check" | tr '\n' ' ')"
+              status=1
+            else
+              echo "::notice title=$app (${{ runner.os }})::$(echo "$check" | tr '\n' ' ')"
+            fi
+            "$cc" remove "$app" || { echo "::error title=$app (${{ runner.os }})::uninstall failed"; status=1; }
+            echo "::endgroup::"
+          done
+          exit $status

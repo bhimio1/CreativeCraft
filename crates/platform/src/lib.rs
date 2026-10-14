@@ -65,6 +65,9 @@ impl Host {
 pub enum ArchiveKind {
     TarGz,
     Zip,
+    /// A macOS disk image holding `App.app` (how the Craft apps ship on macOS). Mounted read-only,
+    /// the app copied out, and detached again; only ever picked on macOS.
+    Dmg,
 }
 
 impl ArchiveKind {
@@ -74,6 +77,8 @@ impl ArchiveKind {
             Some(ArchiveKind::TarGz)
         } else if n.ends_with(".zip") {
             Some(ArchiveKind::Zip)
+        } else if n.ends_with(".dmg") {
+            Some(ArchiveKind::Dmg)
         } else {
             None
         }
@@ -107,6 +112,9 @@ fn tokens(name: &str) -> Vec<String> {
 /// How well `asset` fits `host`; `None` if it can't be used at all.
 pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
     let kind = ArchiveKind::of(asset)?;
+    if kind == ArchiveKind::Dmg && host.os != Os::MacOs {
+        return None;
+    }
     let toks = tokens(asset);
     let has = |aliases: &[&str]| toks.iter().any(|t| aliases.contains(&t.as_str()));
 
@@ -143,6 +151,8 @@ pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
     // the platform's natural archive wins ties
     score += match (host.os, kind) {
         (Os::Windows, ArchiveKind::Zip) | (Os::MacOs, ArchiveKind::Zip) => 5,
+        // a disk image works too, but needs mounting: a plain zip of the app wins a tie
+        (Os::MacOs, ArchiveKind::Dmg) => 3,
         (Os::Linux | Os::FreeBsd, ArchiveKind::TarGz) => 5,
         _ => 0,
     };
@@ -164,6 +174,18 @@ pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
 /// The best asset for `host` among `assets`, if any.
 pub fn pick_asset<'a>(assets: &[&'a str], host: Host) -> Option<&'a str> {
     assets.iter().filter_map(|a| score_asset(a, host).map(|s| (s, *a))).max_by_key(|(s, _)| *s).map(|(_, a)| a)
+}
+
+/// The best CLI-only archive for `host`, other than `picked`. Used when the app's own download
+/// doesn't carry the CLI: the Craft apps ship `App.app` on a `.dmg` and the CLI (their MCP
+/// server) as a separate `<app>-cli-<version>-macos-<arch>.zip`.
+pub fn pick_cli_asset<'a>(assets: &[&'a str], host: Host, picked: &str) -> Option<&'a str> {
+    assets
+        .iter()
+        .filter(|a| **a != picked && tokens(a).iter().any(|t| t == "cli"))
+        .filter_map(|a| score_asset(a, host).map(|s| (s, *a)))
+        .max_by_key(|(s, _)| *s)
+        .map(|(_, a)| a)
 }
 
 /// Compare two version strings like `v0.5.0` / `0.10.1-alpha.2` numerically, part by part.
@@ -257,6 +279,33 @@ mod tests {
             assert_eq!(pick_asset(&a, WIN), Some("figcraft-0.5.1-windows-x64-portable.zip"));
             a.reverse();
         }
+    }
+
+    /// How every Craft app ships on macOS: the app on a disk image, the CLI as its own zip.
+    #[test]
+    fn macos_takes_the_disk_image_and_the_cli_zip() {
+        let craft = [
+            "figcraft-0.5.1-macos-universal.dmg",
+            "figcraft-cli-0.5.1-macos-universal.zip",
+            "figcraft-0.5.1-linux-x86_64.tar.gz",
+            "figcraft-0.5.1-windows-x64.msi",
+            "figcraft-0.5.1-windows-x64-portable.zip",
+        ];
+        let app = pick_asset(&craft, MAC_ARM);
+        assert_eq!(app, Some("figcraft-0.5.1-macos-universal.dmg"));
+        assert_eq!(pick_cli_asset(&craft, MAC_ARM, "figcraft-0.5.1-macos-universal.dmg"), Some("figcraft-cli-0.5.1-macos-universal.zip"));
+        // per-architecture builds: the matching one, never the other
+        let split = [
+            "photocraft-0.5.0-macos-x86_64.dmg",
+            "photocraft-0.5.0-macos-arm64.dmg",
+            "photocraft-cli-0.5.0-macos-x86_64.zip",
+            "photocraft-cli-0.5.0-macos-arm64.zip",
+        ];
+        assert_eq!(pick_asset(&split, MAC_ARM), Some("photocraft-0.5.0-macos-arm64.dmg"));
+        assert_eq!(pick_cli_asset(&split, MAC_ARM, "photocraft-0.5.0-macos-arm64.dmg"), Some("photocraft-cli-0.5.0-macos-arm64.zip"));
+        // disk images are never picked anywhere else, and there's no CLI zip to add on Linux
+        assert_eq!(score_asset("figcraft-0.5.1-macos-universal.dmg", LINUX), None);
+        assert_eq!(pick_cli_asset(&craft, LINUX, "figcraft-0.5.1-linux-x86_64.tar.gz"), None);
     }
 
     #[test]

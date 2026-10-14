@@ -170,29 +170,22 @@ impl Installer {
         let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
         let picked =
             creativecraft_platform::pick_asset(&names, self.host).ok_or_else(|| InstallError::NoAsset { app: app.name.clone(), tag: release.tag.clone() })?;
-        let asset = release.assets.iter().find(|a| a.name == picked).ok_or_else(|| InstallError::Archive("asset vanished".into()))?;
 
-        std::fs::create_dir_all(self.dirs.downloads())?;
-        let part = self.dirs.downloads().join(format!("{}.part", asset.name));
-        let digest = github::download(&asset.url, &part, &mut |done, total| progress(Progress::Downloading { done, total }))?;
-
-        progress(Progress::Verifying);
-        if let Some(expected) = github::published_sha256(&release, &asset.name)? {
-            if !expected.eq_ignore_ascii_case(&digest) {
-                let _ = std::fs::remove_file(&part);
-                return Err(InstallError::Checksum(asset.name.clone()));
-            }
-        } else {
-            log::warn!("{} {} publishes no checksums; installed without verification", app.name, release.tag);
-        }
-
-        progress(Progress::Unpacking);
         let version_dir = self.dirs.apps().join(&app.id).join(sanitize(&release.tag));
         let staging = self.dirs.apps().join(&app.id).join(format!(".staging-{}", sanitize(&release.tag)));
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(&staging)?;
-        unpack::unpack(&part, &asset.name, &staging)?;
-        let _ = std::fs::remove_file(&part);
+        self.fetch_into(app, &release, picked, &staging, progress)?;
+
+        // The app's own download may not carry its CLI (the MCP server): on macOS the Craft apps
+        // ship App.app on a .dmg and the CLI as a separate <app>-cli-<version>-macos-<arch>.zip.
+        if let Some(cli) = &app.cli
+            && unpack::find_executable(&staging, &self.host.exe_name(cli)).is_none()
+            && let Some(extra) = creativecraft_platform::pick_cli_asset(&names, self.host, picked)
+        {
+            self.fetch_into(app, &release, extra, &staging, progress)?;
+        }
+
         let _ = std::fs::remove_dir_all(&version_dir);
         std::fs::rename(&staging, &version_dir)?;
 
@@ -214,6 +207,30 @@ impl Installer {
         }
         progress(Progress::Done);
         Ok(installed)
+    }
+
+    /// Download one release asset, check it against the release's published checksums, and unpack
+    /// it into `dest`.
+    fn fetch_into(&self, app: &AppSpec, release: &Release, name: &str, dest: &Path, progress: &mut dyn FnMut(Progress)) -> Result<(), InstallError> {
+        let asset = release.assets.iter().find(|a| a.name == name).ok_or_else(|| InstallError::Archive(format!("{name} vanished from the release")))?;
+        std::fs::create_dir_all(self.dirs.downloads())?;
+        let part = self.dirs.downloads().join(format!("{}.part", asset.name));
+        let digest = github::download(&asset.url, &part, &mut |done, total| progress(Progress::Downloading { done, total }))?;
+
+        progress(Progress::Verifying);
+        if let Some(expected) = github::published_sha256(release, &asset.name)? {
+            if !expected.eq_ignore_ascii_case(&digest) {
+                let _ = std::fs::remove_file(&part);
+                return Err(InstallError::Checksum(asset.name.clone()));
+            }
+        } else {
+            log::warn!("{} {} publishes no checksum for {}; installed without verification", app.name, release.tag, asset.name);
+        }
+
+        progress(Progress::Unpacking);
+        let result = unpack::unpack(&part, &asset.name, dest);
+        let _ = std::fs::remove_file(&part);
+        result
     }
 
     pub fn uninstall(&mut self, app: &AppSpec) -> Result<(), InstallError> {
