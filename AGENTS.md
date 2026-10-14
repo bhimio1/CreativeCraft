@@ -53,6 +53,11 @@ cargo fmt --all
 CREATIVECRAFT_HOME=/tmp/at cargo run -p creativecraft-cli -- list   # isolated data folder
 ```
 
+After changing the catalog or the installer, run **Actions → Install smoke test** (app ids, e.g.
+`figcraft photocraft`): it installs those apps from their real releases on Linux, macOS and
+Windows with this branch's CLI, checks both executables, runs the CLI and uninstalls. On macOS
+the Craft apps come as `App.app` on a `.dmg` plus a separate CLI zip; the installer handles both.
+
 Before every commit, run `cargo fmt --all` and `cargo clippy --all-targets -- -D warnings`: CI
 fails on any formatting difference and stops before building.
 
