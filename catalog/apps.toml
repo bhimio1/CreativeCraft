@@ -207,6 +207,21 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/deckcraft"
 opens = ["deckcraft", "pptx"]
 
+[[app]]
+id = "figcraft"
+name = "FigCraft"
+category = "Interface design"
+summary = "Interface design and prototyping: frames, auto layout, components and variants, styles and variables, prototypes, Dev Mode."
+kind = "release"
+repo = "storytold/figcraft"
+gui = "figcraft"
+cli = "figcraft-cli"
+mcp = ["mcp"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--attach", "127.0.0.1:{port}"] }
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/storytold/figcraft"
+opens = ["figcraft", "fig"]
+
 # ───────────────────────── Community apps built like the Craft apps (MIT OR Apache-2.0) ─────────────────────────
 # Not part of the official Craft family, but built the same way (pure Rust, the same release layout,
 # `<app>-cli mcp`), so the hub installs, updates and drives them like Craft apps.

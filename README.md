@@ -1,8 +1,8 @@
 # CreativeCraft
 
-**One home for open-source creative apps.** CreativeCraft installs and updates the twelve Craft apps
+**One home for open-source creative apps.** CreativeCraft installs and updates the thirteen Craft apps
 (PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, CADCraft,
-SoundCraft, WordCraft, GridCraft, DeckCraft) and SolveCraft, a community 3D CAD app built the
+SoundCraft, WordCraft, GridCraft, DeckCraft, FigCraft) and SolveCraft, a community 3D CAD app built the
 same way, finds and
 launches other open-source tools you already use (Blender, Krita, Inkscape, GIMP, Kdenlive,
 darktable, Godot, LibreOffice, ComfyUI), keeps your project files in sync through Google Drive or any synced

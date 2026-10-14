@@ -150,6 +150,10 @@ pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
     if has(&["cli"]) {
         score -= 20;
     }
+    // nor is a separate headless server build (FigCraft ships figcraft-server-<v>-<os>-<arch>)
+    if has(&["server", "headless"]) {
+        score -= 30;
+    }
     // web (wasm) bundles are not desktop apps
     if has(&["web", "wasm"]) {
         return None;
@@ -234,6 +238,25 @@ mod tests {
     fn prefers_full_app_over_cli_archive() {
         let a = ["app-cli-1.0-linux-x86_64.tar.gz", "app-1.0-linux-x86_64.tar.gz"];
         assert_eq!(pick_asset(&a, LINUX), Some("app-1.0-linux-x86_64.tar.gz"));
+    }
+
+    /// FigCraft's release: the app, its CLI, a headless server and installers, side by side. The
+    /// server must never win over the app, whichever order the release lists them in.
+    #[test]
+    fn prefers_the_app_over_a_server_build() {
+        let mut a = vec![
+            "figcraft-server-0.5.1-linux-x86_64.tar.gz",
+            "figcraft-0.5.1-linux-x86_64.tar.gz",
+            "figcraft-0.5.1-linux-x86_64.AppImage",
+            "figcraft-0.5.1-windows-x64-portable.zip",
+            "figcraft-0.5.1-windows-x64.msi",
+            "figcraft-0.5.1-freebsd-x86_64.tar.gz",
+        ];
+        for _ in 0..2 {
+            assert_eq!(pick_asset(&a, LINUX), Some("figcraft-0.5.1-linux-x86_64.tar.gz"));
+            assert_eq!(pick_asset(&a, WIN), Some("figcraft-0.5.1-windows-x64-portable.zip"));
+            a.reverse();
+        }
     }
 
     #[test]
