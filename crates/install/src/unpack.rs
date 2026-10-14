@@ -197,8 +197,11 @@ mod tests {
     #[test]
     fn disk_images_are_refused_off_macos() {
         let dir = std::env::temp_dir().join(format!("creativecraft-dmg-refuse-{}", std::process::id()));
-        let err = super::unpack(&dir.join("x.dmg"), "x-1.0-macos-universal.dmg", &dir).unwrap_err();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("x.dmg"), b"not really a disk image").unwrap();
+        let err = super::unpack(&dir.join("x.dmg"), "x-1.0-macos-universal.dmg", &dir.join("out")).unwrap_err();
         assert!(err.to_string().contains("only be installed on macOS"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
