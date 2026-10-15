@@ -241,6 +241,20 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/bherbruck/solvecraft"
 opens = ["solvecraft", "step", "stp", "iges", "igs", "stl", "3mf"]
 
+[[app]]
+id = "musiccraft"
+name = "MusicCraft"
+category = "Music"
+summary = "Pattern-based music production: channel rack, piano roll, playlist and mixer, built-in synths and samplers, CLAP plugins, WAV export."
+kind = "release"
+repo = "bhimio1/musiccraft"
+gui = "musiccraft"
+# 0.1.0 ships the desktop app only. When releases add musiccraft-mcp (MCP over stdio, no arguments),
+# add `cli = "musiccraft-mcp"` and `mcp = []` so the assistant can drive it.
+license = "Not yet licensed"
+homepage = "https://github.com/bhimio1/musiccraft"
+opens = ["mcproj"]
+
 # ───────────────────────── Other open-source apps (detected, not bundled) ─────────────────────────
 
 [[app]]

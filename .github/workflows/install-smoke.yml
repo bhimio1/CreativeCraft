@@ -62,6 +62,8 @@ jobs:
           problems = []
           for k in ("gui", "cli"):
               p = i.get(k)
+              if k == "cli" and p is None:
+                  continue  # a desktop-only app (no cli in its catalog entry)
               if not p or not os.path.isfile(p):
                   problems.append(f"{k} missing ({p})")
           if i.get("cli") and os.path.isfile(i["cli"]):

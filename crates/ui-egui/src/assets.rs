@@ -23,6 +23,7 @@ const APPS: &[(&str, &[u8])] = &[
     ("gridcraft", include_bytes!("../../../assets/apps/gridcraft.png")),
     ("deckcraft", include_bytes!("../../../assets/apps/deckcraft.png")),
     ("figcraft", include_bytes!("../../../assets/apps/figcraft.png")),
+    ("musiccraft", include_bytes!("../../../assets/apps/musiccraft.png")),
 ];
 
 pub struct Textures {

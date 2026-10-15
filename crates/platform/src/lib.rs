@@ -283,6 +283,22 @@ mod tests {
 
     /// How every Craft app ships on macOS: the app on a disk image, the CLI as its own zip.
     #[test]
+    fn picks_musiccrafts_portable_builds() {
+        let a = [
+            "MusicCraft-0.1.0-linux-x86_64-portable.tar.gz",
+            "MusicCraft-0.1.0-linux-x86_64.flatpak",
+            "MusicCraft-0.1.0-macos-universal.dmg",
+            "MusicCraft-0.1.0-windows-x64.msi",
+            "MusicCraft-0.1.0-windows-x64-portable.zip",
+            "SHA256SUMS.txt",
+        ];
+        assert_eq!(pick_asset(&a, LINUX), Some("MusicCraft-0.1.0-linux-x86_64-portable.tar.gz"));
+        assert_eq!(pick_asset(&a, MAC_ARM), Some("MusicCraft-0.1.0-macos-universal.dmg"));
+        assert_eq!(pick_asset(&a, WIN), Some("MusicCraft-0.1.0-windows-x64-portable.zip"));
+        assert_eq!(pick_cli_asset(&a, MAC_ARM, "MusicCraft-0.1.0-macos-universal.dmg"), None);
+    }
+
+    #[test]
     fn macos_takes_the_disk_image_and_the_cli_zip() {
         let craft = [
             "figcraft-0.5.1-macos-universal.dmg",
