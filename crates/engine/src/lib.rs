@@ -5,6 +5,7 @@
 //! there is exactly one implementation of each action.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
+mod audio_plugins;
 pub mod generate;
 mod live;
 mod plugins;
@@ -14,12 +15,13 @@ mod settings;
 pub mod stock;
 pub mod updates;
 
+pub use audio_plugins::{DIR_OVERRIDE as AUDIO_PLUGIN_DIR_ENV, PluginDirEnv, audio_install_plan, audio_plugin_dir, pick_plugin_asset};
 pub use creativecraft_agent as agent;
 pub use creativecraft_cloud::Action as SyncAction;
 pub use creativecraft_cloud::ChangeWatcher;
 pub use creativecraft_generate as generation;
 pub use creativecraft_install::Source;
-pub use creativecraft_marketplace::{Index as PluginIndex, Plugin};
+pub use creativecraft_marketplace::{AudioIndex, AudioPlugin, Format as AudioFormat, Index as PluginIndex, Plugin};
 pub use plugins::PluginState;
 pub use settings::{Appearance, CloudChoice, CustomMcp, GenerationSettings, Settings, TerminalSettings};
 
@@ -70,9 +72,11 @@ pub enum Command {
     Sync,
     /// Check that the configured cloud storage can be reached (Settings → Cloud sync → Test).
     TestCloud,
-    /// Install a Marketplace plugin: check what it needs, run its setup steps, turn it on.
+    /// Install a Marketplace plugin. An MCP plugin: check what it needs, run its setup steps, turn
+    /// it on. An audio plugin: download the publisher's latest release and copy its CLAP / VST3
+    /// bundles into the user's plugin folders (again: update to a newer release).
     InstallPlugin(String),
-    /// Forget an installed plugin.
+    /// Forget an installed plugin (an audio plugin's bundles are deleted).
     RemovePlugin(String),
     /// Turn an installed plugin's tools on or off for agents.
     SetPluginEnabled(String, bool),
@@ -150,8 +154,10 @@ pub struct Session {
     pub catalog: Catalog,
     pub installer: Installer,
     pub settings: Settings,
-    /// The plugins the Marketplace lists.
+    /// The MCP plugins the Marketplace lists.
     pub marketplace: creativecraft_marketplace::Index,
+    /// The audio (CLAP / VST3) plugins the Marketplace lists.
+    pub audio_plugins: creativecraft_marketplace::AudioIndex,
     /// Stops the generation `Command::Generate` is running, from another thread (the CLI's
     /// Ctrl-C). Once used it stays set: it's for a process that ends after stopping.
     pub generation_stop: creativecraft_generate::Cancel,
@@ -179,7 +185,8 @@ impl Session {
         migrate_google_token(&dirs, &secrets);
         let settings = Settings::load_with(&dirs.settings_file(), &secrets);
         let marketplace = plugins::load_index(&dirs.data().join("marketplace").join("plugins.toml"));
-        Ok(Session { dirs, catalog, installer, settings, marketplace, generation_stop: Default::default(), secrets })
+        let audio_plugins = audio_plugins::load_audio_index(&dirs.data().join("marketplace").join("audio-plugins.toml"), &marketplace);
+        Ok(Session { dirs, catalog, installer, settings, marketplace, audio_plugins, generation_stop: Default::default(), secrets })
     }
 
     pub fn save_settings(&self) -> Result<(), EngineError> {
@@ -298,7 +305,7 @@ impl Session {
                 }
                 Ok(out)
             }
-            Command::InstallPlugin(id) => self.install_plugin(&id),
+            Command::InstallPlugin(id) => self.install_plugin(&id, events),
             Command::RemovePlugin(id) => self.remove_plugin(&id),
             Command::SetPluginEnabled(id, on) => self.set_plugin_enabled(&id, on),
             Command::RefreshMarketplace => self.refresh_marketplace(),
@@ -382,6 +389,9 @@ impl Session {
         for (id, state) in &self.settings.plugins {
             if let Some(p) = self.marketplace.get(id) {
                 out.push(json!({ "id": id, "name": p.name, "category": "Plugin", "summary": p.summary, "status": if state.enabled { "installed" } else { "turned_off" }, "mcp": state.enabled, "for_app": p.for_app, "installable_by_hub": false }));
+            } else if let Some(p) = self.audio_plugins.get(id) {
+                // CLAP / VST3 for music apps: no tools for agents
+                out.push(json!({ "id": id, "name": p.name, "category": "Audio plugin", "summary": p.summary, "status": "installed", "version": state.version, "formats": p.formats_label(), "mcp": false, "for_app": p.for_app, "installable_by_hub": false }));
             }
         }
         for c in &self.settings.custom_mcp {

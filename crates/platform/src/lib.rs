@@ -164,6 +164,11 @@ pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
     if has(&["server", "headless"]) {
         score -= 30;
     }
+    // nor are plugins for other apps (MusicCraft ships MusicCraft-Plugins-<v>-<os>-<arch>.zip,
+    // CLAP/VST3 bundles the Marketplace installs); they still rank among themselves
+    if has(&["plugins", "plugin"]) {
+        score -= 40;
+    }
     // web (wasm) bundles are not desktop apps
     if has(&["web", "wasm"]) {
         return None;
@@ -281,23 +286,40 @@ mod tests {
         }
     }
 
-    /// How every Craft app ships on macOS: the app on a disk image, the CLI as its own zip.
+    /// MusicCraft's release: the app, its CLI zip for macOS, and plugin bundles for other apps
+    /// that share the app's OS and arch spelling (and on Windows its archive format).
     #[test]
     fn picks_musiccrafts_portable_builds() {
         let a = [
-            "MusicCraft-0.1.0-linux-x86_64-portable.tar.gz",
-            "MusicCraft-0.1.0-linux-x86_64.flatpak",
-            "MusicCraft-0.1.0-macos-universal.dmg",
-            "MusicCraft-0.1.0-windows-x64.msi",
-            "MusicCraft-0.1.0-windows-x64-portable.zip",
+            "MusicCraft-0.4.0-linux-x86_64-portable.tar.gz",
+            "MusicCraft-0.4.0-linux-x86_64.flatpak",
+            "MusicCraft-0.4.0-macos-universal.dmg",
+            "MusicCraft-CLI-0.4.0-macos-universal.zip",
+            "MusicCraft-0.4.0-windows-x64.msi",
+            "MusicCraft-0.4.0-windows-x64.wixpdb",
+            "MusicCraft-0.4.0-windows-x64-portable.zip",
+            "MusicCraft-Plugins-0.4.0-linux-x86_64.zip",
+            "MusicCraft-Plugins-0.4.0-macos-universal.zip",
+            "MusicCraft-Plugins-0.4.0-windows-x64.zip",
             "SHA256SUMS.txt",
         ];
-        assert_eq!(pick_asset(&a, LINUX), Some("MusicCraft-0.1.0-linux-x86_64-portable.tar.gz"));
-        assert_eq!(pick_asset(&a, MAC_ARM), Some("MusicCraft-0.1.0-macos-universal.dmg"));
-        assert_eq!(pick_asset(&a, WIN), Some("MusicCraft-0.1.0-windows-x64-portable.zip"));
-        assert_eq!(pick_cli_asset(&a, MAC_ARM, "MusicCraft-0.1.0-macos-universal.dmg"), None);
+        // either order: a tie would go to whichever the release lists last
+        for assets in [a.to_vec(), a.iter().rev().copied().collect()] {
+            assert_eq!(pick_asset(&assets, LINUX), Some("MusicCraft-0.4.0-linux-x86_64-portable.tar.gz"));
+            assert_eq!(pick_asset(&assets, MAC_ARM), Some("MusicCraft-0.4.0-macos-universal.dmg"));
+            assert_eq!(pick_asset(&assets, WIN), Some("MusicCraft-0.4.0-windows-x64-portable.zip"));
+            assert_eq!(pick_cli_asset(&assets, MAC_ARM, "MusicCraft-0.4.0-macos-universal.dmg"), Some("MusicCraft-CLI-0.4.0-macos-universal.zip"));
+            assert_eq!(pick_cli_asset(&assets, LINUX, "MusicCraft-0.4.0-linux-x86_64-portable.tar.gz"), None);
+        }
+        // among plugin bundles alone, the host's still wins
+        let plugins: Vec<&str> = a.iter().copied().filter(|n| n.starts_with("MusicCraft-Plugins-")).collect();
+        assert_eq!(pick_asset(&plugins, MAC_ARM), Some("MusicCraft-Plugins-0.4.0-macos-universal.zip"));
+        assert_eq!(pick_asset(&plugins, WIN), Some("MusicCraft-Plugins-0.4.0-windows-x64.zip"));
+        assert_eq!(pick_asset(&plugins, LINUX), Some("MusicCraft-Plugins-0.4.0-linux-x86_64.zip"));
+        assert_eq!(pick_asset(&plugins, LINUX_ARM), None);
     }
 
+    /// How every Craft app ships on macOS: the app on a disk image, the CLI as its own zip.
     #[test]
     fn macos_takes_the_disk_image_and_the_cli_zip() {
         let craft = [

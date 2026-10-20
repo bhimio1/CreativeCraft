@@ -10,7 +10,7 @@
 //! creativecraft-cli sync --preview         what a sync would do, changing nothing
 //! creativecraft-cli login | logout         Google Drive sign-in
 //! creativecraft-cli projects [--json]     recent files in the projects folder
-//! creativecraft-cli plugins [install|remove|enable|disable <id> | refresh]   Marketplace plugins
+//! creativecraft-cli plugins [install|remove|enable|disable <id> | refresh]   Marketplace plugins (MCP and audio)
 //! creativecraft-cli stock search <words…> [--kind photo|illustration|artwork|video|audio]
 //! creativecraft-cli stock download <source> <id> [size label]   into <projects>/Stock
 //! creativecraft-cli stock list [words…]                         what's downloaded (offline)
@@ -174,6 +174,20 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                         };
                         out!("{:<14} {:<16} {:<12} {:<12} {}", p.id, p.name, p.category, state, p.homepage);
                     }
+                    for p in &s.audio_plugins.plugins {
+                        let state = match s.settings.plugins.get(&p.id) {
+                            Some(st) => format!("installed {}", st.version.as_deref().map(creativecraft_engine::updates::show_version).unwrap_or_default()),
+                            None => "-".to_string(),
+                        };
+                        out!("{:<14} {:<16} {:<12} {:<12} audio plugin ({}) · {}", p.id, p.name, p.category, state.trim_end(), p.formats_label(), p.homepage);
+                    }
+                }
+                Some("install") if s.is_audio_plugin(&id()?) => {
+                    let p = s.audio_plugin(&id()?)?;
+                    eprintln!("{}", creativecraft_engine::audio_install_plan(&p));
+                    let msg = s.execute(Command::InstallPlugin(p.id), &mut print_progress)?;
+                    eprintln!();
+                    out!("{msg}");
                 }
                 Some("install") => {
                     let p = s.plugin(&id()?)?;

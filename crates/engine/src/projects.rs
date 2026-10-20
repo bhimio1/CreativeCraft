@@ -126,6 +126,9 @@ pub fn thumbnail(path: &Path) -> Option<Thumbnail> {
     if ext == "pdf" {
         return pdf_thumbnail(path);
     }
+    if ext == "mcproj" {
+        return read_limited(path).and_then(|b| musiccraft_summary(&b)).map(Thumbnail::Text);
+    }
     zip_preview(path).map(Thumbnail::Encoded)
 }
 
@@ -147,6 +150,36 @@ fn text_preview(path: &Path) -> Option<String> {
     let lines: Vec<&str> = text.lines().take(14).collect();
     let s = lines.join("\n");
     (!s.trim().is_empty()).then_some(s)
+}
+
+/// A MusicCraft project (JSON) described in a few lines: its name, tempo and what's in it.
+fn musiccraft_summary(bytes: &[u8]) -> Option<String> {
+    let file: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if file.get("format")?.as_str()? != "musiccraft-project" {
+        return None;
+    }
+    let p = file.get("project")?;
+    let count = |key: &str| p.get(key).and_then(|v| v.as_array()).map_or(0, Vec::len);
+    let plural = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+    let mut lines = Vec::new();
+    if let Some(name) = p.get("name").and_then(|v| v.as_str()).filter(|n| !n.trim().is_empty()) {
+        lines.push(name.to_string());
+    }
+    let mut facts = Vec::new();
+    if let Some(bpm) = p.get("tempo_bpm").and_then(|v| v.as_f64()) {
+        facts.push(format!("{} BPM", (bpm * 100.0).round() / 100.0));
+    }
+    facts.push(plural(count("channels"), "channel"));
+    facts.push(plural(count("patterns"), "pattern"));
+    let clips = p.get("playlist").and_then(|l| l.get("clips")).and_then(|c| c.as_array()).map_or(0, Vec::len);
+    if clips > 0 {
+        facts.push(plural(clips, "clip"));
+    }
+    lines.push(facts.join(" · "));
+    let names: Vec<&str> =
+        p.get("channels").and_then(|c| c.as_array()).into_iter().flatten().filter_map(|c| c.get("name").and_then(|n| n.as_str())).take(10).collect();
+    lines.extend(names.iter().map(|n| format!("• {n}")));
+    Some(lines.join("\n"))
 }
 
 fn zip_preview(path: &Path) -> Option<Vec<u8>> {
@@ -337,6 +370,22 @@ mod tests {
         b.extend_from_slice(&pixels);
         std::fs::write(root.join("scene.blend"), &b).unwrap();
         assert_eq!(thumbnail(&root.join("scene.blend")), Some(Thumbnail::Rgba { width: 1, height: 2, pixels: vec![0, 0, 255, 255, 255, 0, 0, 255] }));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn musiccraft_projects_preview_what_is_in_them() {
+        let root = tmp("mcproj");
+        let song = r#"{"format":"musiccraft-project","version":1,"project":{"name":"Night Drive","tempo_bpm":124.0,
+            "channels":[{"name":"Kick"},{"name":"Bass"}],"patterns":[{"name":"Pattern 1"}],"mixer":[],
+            "playlist":{"clips":[{},{},{}]},"next_id":3}}"#;
+        std::fs::write(root.join("song.mcproj"), song).unwrap();
+        assert_eq!(
+            thumbnail(&root.join("song.mcproj")),
+            Some(Thumbnail::Text("Night Drive\n124 BPM · 2 channels · 1 pattern · 3 clips\n• Kick\n• Bass".into()))
+        );
+        std::fs::write(root.join("other.mcproj"), r#"{"format":"something-else","project":{}}"#).unwrap();
+        assert_eq!(thumbnail(&root.join("other.mcproj")), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 

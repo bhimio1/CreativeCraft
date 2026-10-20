@@ -32,6 +32,8 @@
 - [x] AI generation: video stills without ffmpeg too: the starting picture, macOS Quick Look, Linux desktop thumbnailers
 - [ ] AI generation: video stills on Windows without ffmpeg (needs the Shell thumbnail API, i.e. unsafe code)
 - [x] Marketplace: plugin index (built-in + fetched), MCP-server plugins (Blender, Godot, Inkscape), install with confirmation, on/off, remove, CLI
+- [x] MusicCraft: agents drive it headless or in its open window (live mode), its projects open from the Projects page
+- [x] Marketplace: audio plugins (CLAP and VST3 bundles from a publisher's own releases into the per-user plugin folders): MusicCraft Effects and Instruments
 - [ ] Marketplace: plugins that add apps to the catalog, plugin updates and versions, ratings
 - [ ] Cancel a running git build; Windows icons for external apps (from the executable's resources)
 - [x] Projects: PDF previews (first page, rendered by hayro, pure Rust)

@@ -7,7 +7,7 @@
                               │                         │
 L4  ui-egui ──────────────────┘                         │
                               │                         │
-L3  engine    Session { catalog, installer, settings, marketplace } + Command registry
+L3  engine    Session { catalog, installer, settings, marketplace, audio_plugins } + Command registry
               implements creativecraft_mcp::HubBackend
                  │            │             │
 L2  install         cloud           mcp                        agent
@@ -17,7 +17,7 @@ L2  install         cloud           mcp                        agent
     sources, icons   Rclone, Folder
                      sync executor
                  │            │
-L1  catalog   (apps.toml model)      marketplace (plugins.toml model)
+L1  catalog   (apps.toml model)      marketplace (plugins.toml + audio-plugins.toml models)
 L0  platform (std)        sync-plan (std)
 ```
 
@@ -54,7 +54,20 @@ engine loads it, or a newer copy fetched from the repository into `<data>/market
 plugins are `settings.plugins` (id → enabled). `InstallPlugin` checks `requires` on the host `PATH`
 and runs `setup` steps through `HostCommand`; `Session::spawn_mcp` starts an enabled plugin's `run`
 command, so the hub exposes it as `<id>__<tool>` like an app. Commands are plain program names
-(validated), never shell lines. See [marketplace.md](marketplace.md).
+(validated), never shell lines.
+
+`marketplace/audio-plugins.toml` (`AudioIndex`) lists CLAP / VST3 audio plugins. It is a separate
+file because released hubs parse `plugins.toml` with `deny_unknown_fields`, so that file's schema is
+frozen. Ids are unique across both files, since both kinds share `settings.plugins` and the
+Marketplace page. "Check for new plugins" fetches both files and caches each one separately.
+`InstallPlugin` dispatches on the kind: for an audio plugin it resolves the publisher's latest
+release, picks the host's asset among those starting with the listing's `asset` prefix, downloads,
+verifies and unpacks it with `creativecraft_install::fetch_asset`, then copies `<bundle>.<format>`
+into the per-user plugin folder (`audio_plugin_dir`, overridable with
+`CREATIVECRAFT_AUDIO_PLUGIN_DIR`). Each bundle is written to a temp sibling and then swapped in.
+The plugin's state records the release tag (`version`) and the exact paths (`files`), with
+`enabled` always false. `RemovePlugin` deletes only those recorded bundles that sit directly in a
+plugin folder. Audio plugins never get an MCP server. See [marketplace.md](marketplace.md).
 
 ## Commands
 

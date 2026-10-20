@@ -245,13 +245,16 @@ opens = ["solvecraft", "step", "stp", "iges", "igs", "stl", "3mf"]
 id = "musiccraft"
 name = "MusicCraft"
 category = "Music"
-summary = "Pattern-based music production: channel rack, piano roll, playlist and mixer, built-in synths and samplers, CLAP plugins, WAV export."
+summary = "Pattern-based music production: channel rack, piano roll, playlist and mixer, built-in synths, a wavetable synth and samplers, 47 effects, CLAP and VST3 plugins, WAV, FLAC, MP3 and Ogg export."
 kind = "release"
 repo = "bhimio1/musiccraft"
 gui = "musiccraft"
-# 0.1.0 ships the desktop app only. When releases add musiccraft-mcp (MCP over stdio, no arguments),
-# add `cli = "musiccraft-mcp"` and `mcp = []` so the assistant can drive it.
-license = "Not yet licensed"
+# Its MCP server is a program of its own (every command is a tool); `--dir` makes relative paths
+# land in the projects folder. Releases before 0.4.0 don't ship it: those install as desktop-only.
+cli = "musiccraft-mcp"
+mcp = ["--dir", "{projects}"]
+live = { gui = ["--control", "{port}", "--control-token-file", "{token}", "--dir", "{projects}"], mcp = ["--bridge", "127.0.0.1:{port}", "--control-token-file", "{token}"] }
+license = "GPL-3.0-or-later"
 homepage = "https://github.com/bhimio1/musiccraft"
 opens = ["mcproj"]
 

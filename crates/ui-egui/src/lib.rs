@@ -88,6 +88,8 @@ pub struct CreativeCraftApp {
     cloud_remotes: Option<Vec<String>>,
     /// The Marketplace's plugin list, copied out of the session.
     plugins: Vec<creativecraft_engine::Plugin>,
+    /// The Marketplace's audio (CLAP / VST3) plugins, copied out of the session.
+    audio_plugins: Vec<creativecraft_engine::AudioPlugin>,
     marketplace: marketplace::MarketplaceState,
     stock: stock::StockState,
     generate: generate::GenerateState,
@@ -142,6 +144,7 @@ impl CreativeCraftApp {
             source_dialog: None,
             cloud_remotes: None,
             plugins: Vec::new(),
+            audio_plugins: Vec::new(),
             marketplace: marketplace::MarketplaceState::default(),
             stock: stock::StockState::default(),
             generate: generate::GenerateState::default(),
@@ -215,6 +218,7 @@ impl CreativeCraftApp {
         // plugin commands change the session's settings; keep the draft in step, so saving other
         // settings never undoes an install
         self.plugins = s.marketplace.plugins.clone();
+        self.audio_plugins = s.audio_plugins.plugins.clone();
         self.draft.plugins = s.settings.plugins.clone();
         self.saved.plugins = s.settings.plugins.clone();
         self.rows = s

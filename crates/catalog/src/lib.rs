@@ -206,6 +206,22 @@ mod tests {
         assert_eq!(ids.len(), c.apps.len(), "duplicate ids");
     }
 
+    /// MusicCraft's MCP server is its own program: no subcommand, and live mode both authenticates
+    /// the window's control channel and lands relative paths in the projects folder.
+    #[test]
+    fn musiccraft_is_agent_ready() {
+        let c = Catalog::builtin().unwrap();
+        let m = c.get("musiccraft").unwrap();
+        assert!(m.has_mcp());
+        assert_eq!(m.cli.as_deref(), Some("musiccraft-mcp"));
+        assert_eq!(m.mcp.as_deref().unwrap(), ["--dir", "{projects}"]);
+        let live = m.live.as_ref().unwrap();
+        assert!(live.gui.windows(2).any(|w| w == ["--control-token-file", "{token}"]));
+        assert!(live.gui.windows(2).any(|w| w == ["--dir", "{projects}"]));
+        assert_eq!(live.mcp, ["--bridge", "127.0.0.1:{port}", "--control-token-file", "{token}"]);
+        assert_eq!(m.opens.first().map(String::as_str), Some("mcproj"));
+    }
+
     #[test]
     fn overlay_replaces_and_appends() {
         let mut c = Catalog::builtin().unwrap();

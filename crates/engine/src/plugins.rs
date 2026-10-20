@@ -4,22 +4,30 @@
 //! tools named `<plugin id>__<tool>`.
 
 use crate::{EngineError, Session};
-use creativecraft_marketplace::{Index, Plugin};
+use creativecraft_marketplace::{AudioIndex, Index, Plugin};
 use creativecraft_platform::{HostCommand, find_on_path};
 use serde::{Deserialize, Serialize};
 use std::process::{Child, Stdio};
 
-/// An installed plugin, as saved in the settings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// An installed plugin, as saved in the settings. Fields added after the first release have
+/// defaults, so older `settings.json` files still load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginState {
-    /// Off: kept installed, but agents don't get its tools.
+    /// Off: kept installed, but agents don't get its tools. Always off for audio plugins, which
+    /// have no tools.
     pub enabled: bool,
+    /// Audio plugins: the release tag installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Audio plugins: exactly what was copied into the plugin folders (what Remove deletes).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<std::path::PathBuf>,
 }
 
-/// Where a fresh copy of the index is fetched from: this project's repository.
-fn index_url() -> Option<String> {
+/// Where a fresh copy of an index file is fetched from: this project's repository.
+fn index_url(file: &str) -> Option<String> {
     let repo = env!("CARGO_PKG_REPOSITORY").strip_prefix("https://github.com/")?.trim_end_matches('/');
-    Some(format!("https://raw.githubusercontent.com/{repo}/main/marketplace/plugins.toml"))
+    Some(format!("https://raw.githubusercontent.com/{repo}/main/marketplace/{file}"))
 }
 
 /// The built-in index, or a fetched copy at least as new.
@@ -36,23 +44,54 @@ impl Session {
         self.dirs.data().join("marketplace").join("plugins.toml")
     }
 
-    /// Fetch the newest plugin index from the CreativeCraft repository.
+    fn audio_index_cache(&self) -> std::path::PathBuf {
+        self.dirs.data().join("marketplace").join("audio-plugins.toml")
+    }
+
+    /// Fetch the newest plugin indexes (MCP plugins and audio plugins) from the CreativeCraft
+    /// repository. Each is used only when at least as new as the one in use, and the two must not
+    /// list the same id.
     pub(crate) fn refresh_marketplace(&mut self) -> Result<String, EngineError> {
-        let url = index_url().ok_or_else(|| EngineError::Plugin("this build doesn't know where its repository is".into()))?;
-        let Some(text) = creativecraft_install::fetch_text(&url)? else {
-            return Ok(format!("Using the built-in list of {} plugins; no newer one is published yet", self.marketplace.plugins.len()));
+        let fetch = |file: &str| -> Result<Option<String>, EngineError> {
+            let url = index_url(file).ok_or_else(|| EngineError::Plugin("this build doesn't know where its repository is".into()))?;
+            Ok(creativecraft_install::fetch_text(&url)?)
         };
-        let fetched = Index::parse(&text).map_err(|e| EngineError::Plugin(format!("the published plugin list isn't valid: {e}")))?;
-        if fetched.version < self.marketplace.version {
-            return Ok(format!("{} plugins listed; this build's list is newer than the published one", self.marketplace.plugins.len()));
+        let mcp_text = fetch("plugins.toml")?;
+        let audio_text = fetch("audio-plugins.toml")?;
+        let mcp = match &mcp_text {
+            Some(t) => Some(Index::parse(t).map_err(|e| EngineError::Plugin(format!("the published plugin list isn't valid: {e}")))?),
+            None => None,
+        };
+        let audio = match &audio_text {
+            Some(t) => Some(AudioIndex::parse(t).map_err(|e| EngineError::Plugin(format!("the published audio plugin list isn't valid: {e}")))?),
+            None => None,
+        };
+        let mcp_newer = mcp.as_ref().is_some_and(|m| m.version >= self.marketplace.version);
+        let audio_newer = audio.as_ref().is_some_and(|a| a.version >= self.audio_plugins.version);
+        let next_mcp = mcp.filter(|_| mcp_newer).unwrap_or_else(|| self.marketplace.clone());
+        let next_audio = audio.filter(|_| audio_newer).unwrap_or_else(|| self.audio_plugins.clone());
+        creativecraft_marketplace::check_ids_unique(&next_mcp, &next_audio)
+            .map_err(|e| EngineError::Plugin(format!("the published plugin lists don't fit together: {e}")))?;
+        let write = |path: std::path::PathBuf, text: &str| -> Result<(), EngineError> {
+            if let Some(d) = path.parent() {
+                std::fs::create_dir_all(d)?;
+            }
+            Ok(std::fs::write(path, text)?)
+        };
+        if let (true, Some(t)) = (mcp_newer, &mcp_text) {
+            write(self.index_cache(), t)?;
         }
-        let cache = self.index_cache();
-        if let Some(d) = cache.parent() {
-            std::fs::create_dir_all(d)?;
+        if let (true, Some(t)) = (audio_newer, &audio_text) {
+            write(self.audio_index_cache(), t)?;
         }
-        std::fs::write(&cache, &text)?;
-        self.marketplace = fetched;
-        Ok(format!("{} plugins listed", self.marketplace.plugins.len()))
+        self.marketplace = next_mcp;
+        self.audio_plugins = next_audio;
+        let listed = format!("{} plugins and {} audio plugins listed", self.marketplace.plugins.len(), self.audio_plugins.plugins.len());
+        Ok(match (mcp_text.is_some() || audio_text.is_some(), mcp_newer || audio_newer) {
+            (false, _) => format!("Using the built-in lists ({listed}); no newer ones are published yet"),
+            (true, false) => format!("{listed}; this build's lists are newer than the published ones"),
+            (true, true) => listed,
+        })
     }
 
     pub fn plugin(&self, id: &str) -> Result<Plugin, EngineError> {
@@ -64,7 +103,10 @@ impl Session {
         plugin.requires.iter().filter(|r| find_on_path(&r.program).is_none()).map(|r| (r.name.clone(), r.url.clone())).collect()
     }
 
-    pub(crate) fn install_plugin(&mut self, id: &str) -> Result<String, EngineError> {
+    pub(crate) fn install_plugin(&mut self, id: &str, events: &mut dyn FnMut(crate::Event)) -> Result<String, EngineError> {
+        if self.audio_plugins.get(id).is_some() {
+            return self.install_audio_plugin(id, events);
+        }
         let plugin = self.plugin(id)?;
         if let Some((name, url)) = Self::missing_requirements(&plugin).into_iter().next() {
             return Err(EngineError::Plugin(format!("{} needs {name} first: get it from {url}", plugin.name)));
@@ -81,13 +123,16 @@ impl Session {
                 return Err(EngineError::Plugin(format!("{}: \"{}\" failed: {tail}", plugin.name, step.label)));
             }
         }
-        self.settings.plugins.insert(id.to_string(), PluginState { enabled: true });
+        self.settings.plugins.insert(id.to_string(), PluginState { enabled: true, ..PluginState::default() });
         self.save_settings()?;
         let notes = if plugin.notes.is_empty() { String::new() } else { format!(" {}", plugin.notes) };
         Ok(format!("{} installed.{notes}", plugin.name))
     }
 
     pub(crate) fn remove_plugin(&mut self, id: &str) -> Result<String, EngineError> {
+        if self.is_audio_plugin(id) {
+            return self.remove_audio_plugin(id);
+        }
         let name = self.marketplace.get(id).map_or(id.to_string(), |p| p.name.clone());
         if self.settings.plugins.remove(id).is_none() {
             return Err(EngineError::Plugin(format!("{name} isn't installed")));
@@ -97,6 +142,10 @@ impl Session {
     }
 
     pub(crate) fn set_plugin_enabled(&mut self, id: &str, enabled: bool) -> Result<String, EngineError> {
+        if self.is_audio_plugin(id) {
+            let name = self.audio_plugins.get(id).map_or(id.to_string(), |p| p.name.clone());
+            return Err(EngineError::Plugin(format!("{name} is an audio plugin for music apps; it has no tools for agents to turn on or off")));
+        }
         let name = self.marketplace.get(id).map_or(id.to_string(), |p| p.name.clone());
         let state = self.settings.plugins.get_mut(id).ok_or_else(|| EngineError::Plugin(format!("{name} isn't installed")))?;
         state.enabled = enabled;
@@ -106,7 +155,7 @@ impl Session {
 
     /// Start an installed, enabled plugin's MCP server, if `id` is one.
     pub(crate) fn spawn_plugin(&self, id: &str) -> Option<Result<Child, EngineError>> {
-        if !self.settings.plugins.get(id).is_some_and(|s| s.enabled) {
+        if !self.settings.plugins.get(id).is_some_and(|s| s.enabled) || self.is_audio_plugin(id) {
             return None;
         }
         let plugin = self.marketplace.get(id)?;
@@ -126,7 +175,7 @@ mod tests {
 
     #[test]
     fn index_url_points_at_this_repository() {
-        let url = index_url().unwrap();
+        let url = index_url("plugins.toml").unwrap();
         assert!(url.starts_with("https://raw.githubusercontent.com/") && url.ends_with("/main/marketplace/plugins.toml"), "{url}");
     }
 
@@ -143,5 +192,17 @@ mod tests {
         std::fs::write(&cache, "not toml [").unwrap();
         assert_eq!(load_index(&cache).plugins.len(), builtin.plugins.len(), "a broken copy is ignored");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn old_plugin_settings_still_load() {
+        let old: PluginState = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!(old, PluginState { enabled: true, version: None, files: Vec::new() });
+        // and an MCP plugin's state is written as before
+        assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"enabled":true}"#);
+        let audio = PluginState { enabled: false, version: Some("v0.3.0".into()), files: vec!["/home/me/.clap/X.clap".into()] };
+        assert_eq!(serde_json::from_str::<PluginState>(&serde_json::to_string(&audio).unwrap()).unwrap(), audio);
+        let settings: crate::Settings = serde_json::from_str(r#"{"plugins":{"blender-mcp":{"enabled":false}}}"#).unwrap();
+        assert_eq!(settings.plugins["blender-mcp"], PluginState::default());
     }
 }

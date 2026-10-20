@@ -25,7 +25,7 @@ mod updates;
 
 pub use dirs::HubDirs;
 pub use external::detect_external;
-pub use github::{Asset, Release, fetch_text, newest_release};
+pub use github::{Asset, Release, fetch_text, latest_release, newest_release};
 pub use icons::IconData;
 pub use registry::{Installed, Registry};
 pub use source::Source;
@@ -198,7 +198,17 @@ impl Installer {
                 }
             }
         };
-        let installed = Installed { version: release.tag.clone(), dir: version_dir.clone(), gui: find(&app.gui)?, cli: find(&app.cli)?, source };
+        let gui = find(&app.gui)?;
+        // a release that doesn't carry the CLI yet (MusicCraft before 0.4.0) still installs the
+        // desktop app; agents get it once an update brings the CLI
+        let cli = match find(&app.cli) {
+            Err(e) if gui.is_some() => {
+                log::warn!("{} {}: {e}; installed without its CLI", app.name, release.tag);
+                None
+            }
+            other => other?,
+        };
+        let installed = Installed { version: release.tag.clone(), dir: version_dir.clone(), gui, cli, source };
 
         let previous = self.registry.set(&app.id, installed.clone());
         self.registry.save(&self.dirs.registry_file())?;
@@ -212,25 +222,7 @@ impl Installer {
     /// Download one release asset, check it against the release's published checksums, and unpack
     /// it into `dest`.
     fn fetch_into(&self, app: &AppSpec, release: &Release, name: &str, dest: &Path, progress: &mut dyn FnMut(Progress)) -> Result<(), InstallError> {
-        let asset = release.assets.iter().find(|a| a.name == name).ok_or_else(|| InstallError::Archive(format!("{name} vanished from the release")))?;
-        std::fs::create_dir_all(self.dirs.downloads())?;
-        let part = self.dirs.downloads().join(format!("{}.part", asset.name));
-        let digest = github::download(&asset.url, &part, &mut |done, total| progress(Progress::Downloading { done, total }))?;
-
-        progress(Progress::Verifying);
-        if let Some(expected) = github::published_sha256(release, &asset.name)? {
-            if !expected.eq_ignore_ascii_case(&digest) {
-                let _ = std::fs::remove_file(&part);
-                return Err(InstallError::Checksum(asset.name.clone()));
-            }
-        } else {
-            log::warn!("{} {} publishes no checksum for {}; installed without verification", app.name, release.tag, asset.name);
-        }
-
-        progress(Progress::Unpacking);
-        let result = unpack::unpack(&part, &asset.name, dest);
-        let _ = std::fs::remove_file(&part);
-        result
+        fetch_asset(&self.dirs, &app.name, release, name, dest, progress)
     }
 
     pub fn uninstall(&mut self, app: &AppSpec) -> Result<(), InstallError> {
@@ -272,7 +264,7 @@ impl Installer {
     /// stdio, ready for an MCP client.
     pub fn spawn_mcp(&self, app: &AppSpec, args: &[String]) -> Result<Child, InstallError> {
         let i = self.registry.get(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
-        let cli = i.cli.as_ref().ok_or_else(|| InstallError::MissingExe { app: app.name.clone(), exe: "cli".into() })?;
+        let cli = i.cli.as_ref().ok_or_else(|| InstallError::MissingExe { app: app.name.clone(), exe: app.cli.clone().unwrap_or_else(|| "cli".into()) })?;
         let mut c = HostCommand::new(cli);
         c.args(args);
         Ok(c.into_std().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?)
@@ -302,6 +294,31 @@ impl Installer {
         open::that_detached(url)?;
         Ok(())
     }
+}
+
+/// Download the asset `name` of `release` into the downloads folder, check it against the
+/// release's published SHA-256 sums (a mismatch is an error; no sums is a logged warning), and
+/// unpack it into `dest`. `what` names the download in logs. The download is removed afterwards.
+pub fn fetch_asset(dirs: &HubDirs, what: &str, release: &Release, name: &str, dest: &Path, progress: &mut dyn FnMut(Progress)) -> Result<(), InstallError> {
+    let asset = release.assets.iter().find(|a| a.name == name).ok_or_else(|| InstallError::Archive(format!("{name} vanished from the release")))?;
+    std::fs::create_dir_all(dirs.downloads())?;
+    let part = dirs.downloads().join(format!("{}.part", asset.name));
+    let digest = github::download(&asset.url, &part, &mut |done, total| progress(Progress::Downloading { done, total }))?;
+
+    progress(Progress::Verifying);
+    if let Some(expected) = github::published_sha256(release, &asset.name)? {
+        if !expected.eq_ignore_ascii_case(&digest) {
+            let _ = std::fs::remove_file(&part);
+            return Err(InstallError::Checksum(asset.name.clone()));
+        }
+    } else {
+        log::warn!("{what} {} publishes no checksum for {}; installed without verification", release.tag, asset.name);
+    }
+
+    progress(Progress::Unpacking);
+    let result = unpack::unpack(&part, &asset.name, dest);
+    let _ = std::fs::remove_file(&part);
+    result
 }
 
 /// Start an app window that keeps running on its own (also after the hub quits).

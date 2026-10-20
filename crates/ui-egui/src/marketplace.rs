@@ -1,9 +1,10 @@
-//! The Marketplace page: plugins that give agents tools for more apps. Each is an MCP server run
-//! from its publisher's own package (see `creativecraft-marketplace`); installing shows exactly what
-//! will run on the user's computer before anything does.
+//! The Marketplace page: plugins that give agents tools for more apps (MCP servers run from their
+//! publishers' own packages), and audio plugins (CLAP / VST3 bundles from their publishers' own
+//! releases, copied into the user's plugin folders for music apps). See
+//! `creativecraft-marketplace`. Installing shows exactly what will happen before anything does.
 
 use crate::{CreativeCraftApp, Page, assets, settings, theme};
-use creativecraft_engine::{Command, Plugin, Session};
+use creativecraft_engine::{AudioPlugin, Command, Plugin, Session};
 use egui::{RichText, vec2};
 use std::collections::HashMap;
 
@@ -60,6 +61,15 @@ impl CreativeCraftApp {
         };
         let plugins: Vec<Plugin> = self.plugins.iter().filter(|p| matches(p)).cloned().collect();
         let (installed, available): (Vec<Plugin>, Vec<Plugin>) = plugins.into_iter().partition(|p| self.draft.plugins.contains_key(&p.id));
+        let audio_matches = |p: &AudioPlugin| {
+            q.is_empty()
+                || [&p.name, &p.summary, &p.category, &p.author].iter().any(|s| s.to_lowercase().contains(&q))
+                || "audio plugins clap vst3".contains(&q)
+                || p.for_app.as_deref().is_some_and(|a| a.contains(&q))
+        };
+        let mut audio: Vec<AudioPlugin> = self.audio_plugins.iter().filter(|p| audio_matches(p)).cloned().collect();
+        // installed first, otherwise as listed
+        audio.sort_by_key(|p| !self.draft.plugins.contains_key(&p.id));
 
         egui::ScrollArea::vertical().id_salt("marketplace").auto_shrink(false).show(ui, |ui| {
             for (title, list) in [("Installed", &installed), ("Available", &available)] {
@@ -74,7 +84,21 @@ impl CreativeCraftApp {
                 }
                 ui.add_space(14.0);
             }
-            if installed.is_empty() && available.is_empty() {
+            if !audio.is_empty() {
+                ui.label(RichText::new("Audio plugins").size(16.0).strong().color(t.ink));
+                ui.label(
+                    RichText::new("CLAP and VST3 plugins for music apps, downloaded from their publishers' own releases into your plugin folders.")
+                        .size(12.0)
+                        .color(t.muted),
+                );
+                ui.add_space(6.0);
+                for p in &audio {
+                    self.audio_plugin_card(ui, p);
+                    ui.add_space(10.0);
+                }
+                ui.add_space(14.0);
+            }
+            if installed.is_empty() && available.is_empty() && audio.is_empty() {
                 ui.label(RichText::new(if q.is_empty() { "No plugins listed yet." } else { "No plugins match your search." }).color(t.muted));
             }
             ui.add_space(8.0);
@@ -172,6 +196,96 @@ impl CreativeCraftApp {
                     ui.add_space(4.0);
                     ui.label(RichText::new(&p.notes).size(12.0).color(t.muted));
                 }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(idle, theme::primary("Install")).clicked() {
+                        self.run(format!("Install {}", p.name), Command::InstallPlugin(p.id.clone()));
+                        self.marketplace.confirm = None;
+                    }
+                    if ui.add(theme::secondary("Cancel")).clicked() {
+                        self.marketplace.confirm = None;
+                    }
+                });
+            }
+            ui.add_space(12.0);
+        });
+    }
+
+    fn audio_plugin_card(&mut self, ui: &mut egui::Ui, p: &AudioPlugin) {
+        let t = theme::Tokens::get();
+        let idle = self.busy.is_none();
+        let state = self.draft.plugins.get(&p.id).cloned();
+        let progress = self.install_progress.as_ref().filter(|(id, ..)| *id == p.id).cloned();
+        theme::card(ui, |ui| {
+            ui.add_space(12.0);
+            ui.horizontal_top(|ui| {
+                let (icon, _) = ui.allocate_exact_size(vec2(40.0, 40.0), egui::Sense::hover());
+                match p.for_app.as_deref().and_then(|a| self.tex.app(a)) {
+                    Some(tex) => assets::paint(ui, tex, icon),
+                    None => theme::letter_tile(ui, icon, &p.name),
+                }
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 230.0).max(200.0));
+                    ui.label(RichText::new(&p.name).size(15.0).strong().color(t.ink));
+                    let version =
+                        state.as_ref().and_then(|s| s.version.as_deref()).map(|v| format!(" · {} installed", creativecraft_engine::updates::show_version(v)));
+                    ui.label(
+                        RichText::new(format!("{} · {} · by {} · {}{}", p.formats_label(), p.category, p.author, p.license, version.unwrap_or_default()))
+                            .size(12.0)
+                            .color(t.muted),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(&p.summary).size(13.0).color(t.ink));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    if let Some((_, f, label)) = &progress {
+                        ui.label(RichText::new(label).size(12.0).color(t.muted));
+                        ui.add(egui::ProgressBar::new(f.max(0.0)).desired_width(120.0).desired_height(6.0));
+                        return;
+                    }
+                    match &state {
+                        Some(_) => {
+                            ui.menu_button(RichText::new("…").size(16.0), |ui| {
+                                if ui.button("Website").clicked() {
+                                    ui.ctx().open_url(egui::OpenUrl::new_tab(&p.homepage));
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui.add_enabled(idle, egui::Button::new(RichText::new("Remove").color(t.danger))).clicked() {
+                                    self.run(format!("Remove {}", p.name), Command::RemovePlugin(p.id.clone()));
+                                    ui.close();
+                                }
+                            });
+                            // installing again gets the newest release, or says it's up to date
+                            if ui.add_enabled(idle, theme::secondary("Update")).on_hover_text("Install the newest release, if there is one").clicked() {
+                                self.run(format!("Update {}", p.name), Command::InstallPlugin(p.id.clone()));
+                            }
+                        }
+                        None => {
+                            if ui.add_enabled(idle, theme::primary("Install")).clicked() {
+                                self.marketplace.confirm = Some(p.id.clone());
+                            }
+                        }
+                    }
+                    if ui.add(egui::Button::new(RichText::new("Website").size(12.0)).frame(false)).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(&p.homepage));
+                    }
+                });
+            });
+
+            if state.is_some() && !p.notes.is_empty() {
+                ui.add_space(8.0);
+                ui.label(RichText::new(&p.notes).size(12.0).color(t.muted));
+            }
+
+            // install: say what will happen, then ask
+            if self.marketplace.confirm.as_deref() == Some(&p.id) && state.is_none() {
+                ui.add_space(10.0);
+                theme::row_divider(ui);
+                ui.add_space(8.0);
+                ui.label(RichText::new(creativecraft_engine::audio_install_plan(p)).size(13.0).color(t.ink));
+                ui.label(RichText::new("Your music app finds them after it rescans its plugins. Remove deletes them again.").size(12.0).color(t.muted));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(idle, theme::primary("Install")).clicked() {

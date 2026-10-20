@@ -1,0 +1,55 @@
+# CreativeCraft audio plugin index.
+#
+# An audio plugin is a CLAP or VST3 bundle that music apps (DAWs) load. CreativeCraft hosts none of
+# them: installing one downloads the publisher's own GitHub release for this computer, checks it
+# against the release's published SHA-256 sums, and copies the bundles into the user's own plugin
+# folders (~/.clap and ~/.vst3 on Linux; ~/Library/Audio/Plug-Ins/CLAP and …/VST3 on macOS;
+# %LOCALAPPDATA%\Programs\Common\CLAP and …\VST3 on Windows), where DAWs look for them.
+#
+# This file is separate from plugins.toml (MCP servers for agents) so that older CreativeCraft
+# versions, which read plugins.toml strictly, keep working. Ids must be unique across both files.
+#
+#   id        lowercase letters, digits and '-'
+#   for_app   the catalog app it comes from or works with, if any (its icon is shown)
+#   repo      the GitHub repository (owner/name) whose latest release it downloads from
+#   asset     the start of the release asset's name; among assets starting with it, the one built
+#             for this computer is picked (OS and CPU in the name, as with apps)
+#   bundle    the bundle's name inside the archive, without extension: `<bundle>.clap`,
+#             `<bundle>.vst3` (found anywhere in the archive; a file or a folder)
+#   formats   which of "clap" and "vst3" it installs
+#   notes     what the user still has to do themselves
+#
+# The hub fetches the newest copy of this file from the CreativeCraft repository ("Check for new
+# plugins"), so listings can be added without an app update. Bump `version` when you change it.
+
+version = 1
+
+[[plugin]]
+id = "musiccraft-effects"
+name = "MusicCraft Effects"
+for_app = "musiccraft"
+category = "Effects"
+summary = "MusicCraft's 44 mixer effects as CLAP and VST3 plugins, with the same editors as in MusicCraft and its presets shared with the app."
+author = "bhimio1"
+license = "GPL-3.0-or-later"
+homepage = "https://github.com/bhimio1/musiccraft"
+repo = "bhimio1/musiccraft"
+asset = "MusicCraft-Plugins"
+bundle = "MusicCraft Effects"
+formats = ["clap", "vst3"]
+notes = "Rescan plugins in your music app to find them."
+
+[[plugin]]
+id = "musiccraft-instruments"
+name = "MusicCraft Instruments"
+for_app = "musiccraft"
+category = "Instruments"
+summary = "MusicCraft's 11 built-in instruments and Antiserum, its wavetable synth, as CLAP and VST3 plugins, with the same editors as in MusicCraft and its presets shared with the app."
+author = "bhimio1"
+license = "GPL-3.0-or-later"
+homepage = "https://github.com/bhimio1/musiccraft"
+repo = "bhimio1/musiccraft"
+asset = "MusicCraft-Plugins"
+bundle = "MusicCraft Instruments"
+formats = ["clap", "vst3"]
+notes = "Rescan plugins in your music app to find them."
