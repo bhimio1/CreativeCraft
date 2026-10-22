@@ -157,12 +157,37 @@ pub fn find_on_path(name: &str) -> Option<PathBuf> {
     if p.components().count() > 1 {
         return if in_flatpak() { host_is_file(p).then(|| p.to_path_buf()) } else { p.is_file().then(|| p.to_path_buf()) };
     }
-    if in_flatpak() {
-        return host_command_v(name);
-    }
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).flat_map(|d| exts.iter().map(move |e| d.join(format!("{name}{e}")))).find(|c| c.is_file())
+    let on_path = if in_flatpak() {
+        host_command_v(name)
+    } else {
+        std::env::var_os("PATH")
+            .and_then(|path| std::env::split_paths(&path).flat_map(|d| exts.iter().map(move |e| d.join(format!("{name}{e}")))).find(|c| c.is_file()))
+    };
+    on_path.or_else(|| {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+        user_bin_dirs(Path::new(&home))
+            .into_iter()
+            .flat_map(|d| exts.iter().map(move |e| d.join(format!("{name}{e}"))))
+            .find(|c| if in_flatpak() { host_is_file(c) } else { c.is_file() })
+    })
+}
+
+/// Where per-user installers put CLIs. Apps started from a desktop menu don't read `~/.bashrc`,
+/// so these are often missing from their `PATH` even though a terminal finds the program
+/// (Claude Code's installer uses `~/.local/bin`, nvm a folder per Node version).
+fn user_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> =
+        [".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".opencode/bin", ".cargo/bin"].iter().map(|d| home.join(d)).collect();
+    if let Ok(versions) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+        let mut nvm: Vec<PathBuf> = versions.flatten().map(|v| v.path().join("bin")).collect();
+        nvm.sort();
+        dirs.extend(nvm.into_iter().rev()); // newest version first
+    }
+    if cfg!(unix) {
+        dirs.push(PathBuf::from("/usr/local/bin"));
+    }
+    dirs
 }
 
 fn cache() -> &'static Mutex<HashMap<String, Option<PathBuf>>> {
@@ -181,8 +206,11 @@ fn host_command_v(name: &str) -> Option<PathBuf> {
     let out = Command::new("flatpak-spawn").args(host_lookup_args(name)).output().ok();
     let found =
         out.filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| s.starts_with('/')).map(PathBuf::from);
-    if let Ok(mut c) = cache().lock() {
-        c.insert(name.to_string(), found.clone());
+    // misses aren't cached: a CLI installed while the hub runs is found on the next look
+    if let Some(f) = &found
+        && let Ok(mut c) = cache().lock()
+    {
+        c.insert(name.to_string(), Some(f.clone()));
     }
     found
 }
@@ -280,5 +308,19 @@ mod tests {
             assert_eq!(find_on_path(&dir.join("missing").display().to_string()), None);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_bin_dirs_cover_desktop_launches() {
+        let home = std::env::temp_dir().join(format!("cc-home-{}", std::process::id()));
+        for v in ["v18.0.0", "v22.1.0"] {
+            std::fs::create_dir_all(home.join(".nvm/versions/node").join(v).join("bin")).unwrap();
+        }
+        let dirs = user_bin_dirs(&home);
+        assert_eq!(dirs[0], home.join(".local/bin"));
+        let nvm22 = dirs.iter().position(|d| d.ends_with("v22.1.0/bin")).unwrap();
+        let nvm18 = dirs.iter().position(|d| d.ends_with("v18.0.0/bin")).unwrap();
+        assert!(nvm22 < nvm18);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
