@@ -170,7 +170,8 @@ Outside Flatpak that is exactly the `std::process::Command` it describes. Inside
 <args>`, because those programs live on the host; env and directory travel as flags since the
 outer process's would only reach `flatpak-spawn`. App windows the user opens are spawned without
 `--watch-bus` so they outlive the hub. `platform::find_on_path` asks the host's `PATH`
-(`sh -c 'command -v -- "$1"'`, cached), and `platform::stop` sends SIGTERM before SIGKILL, which
+(`sh -c 'command -v -- "$1"'`, hits cached), then falls back to per-user install folders a
+menu-launched app's `PATH` often lacks (`~/.local/bin`, nvm's Node versions, `~/.bun/bin`, …), and `platform::stop` sends SIGTERM before SIGKILL, which
 `flatpak-spawn` can't forward. External apps installed as Flatpaks are found under
 `~/.local/share/flatpak/exports` and `/var/lib/flatpak/exports` (catalog `flatpak` id, or an
 exported desktop entry's `--command=`).
