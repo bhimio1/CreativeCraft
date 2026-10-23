@@ -72,7 +72,8 @@ pub struct CreativeCraftApp {
     saved: Settings,
     dirty_since: Option<f64>,
     signed_in: bool,
-    cli_path: String,
+    /// How MCP hosts start the hub (shown on the Connections page).
+    hub: creativecraft_engine::agent::McpServer,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     busy: Option<String>,
@@ -113,10 +114,6 @@ pub struct CreativeCraftApp {
 impl CreativeCraftApp {
     pub fn new(session: Session, ctx: egui::Context) -> CreativeCraftApp {
         let (tx, rx) = channel();
-        let cli_path = std::env::current_exe()
-            .ok()
-            .map(|p| p.with_file_name(if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" }).display().to_string())
-            .unwrap_or_else(|| "creativecraft-cli".into());
         let draft = session.settings.clone();
         let secrets_place = session.secrets.place();
         let splash = splash::Splash::new(draft.intro_animation);
@@ -132,7 +129,7 @@ impl CreativeCraftApp {
             draft,
             dirty_since: None,
             signed_in: false,
-            cli_path,
+            hub: creativecraft_engine::agent::McpServer::hub(),
             tx,
             rx,
             busy: None,

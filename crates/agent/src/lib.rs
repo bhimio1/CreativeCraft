@@ -93,7 +93,12 @@ pub struct McpServer {
 
 impl McpServer {
     /// `creativecraft-cli mcp`, preferring the CLI that sits next to the running executable.
+    /// Inside Flatpak that CLI's path (`/app/bin/…`) only exists in the sandbox, while MCP hosts
+    /// (and the agent CLIs the Assistant starts) run on the host, so they go through `flatpak run`.
     pub fn hub() -> McpServer {
+        if let Some(id) = std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty()) {
+            return McpServer::flatpak(&id);
+        }
         let exe = if cfg!(windows) { "creativecraft-cli.exe" } else { "creativecraft-cli" };
         let command = std::env::current_exe()
             .ok()
@@ -102,6 +107,12 @@ impl McpServer {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| exe.to_string());
         McpServer { command, args: vec!["mcp".into()] }
+    }
+
+    /// The hub of the Flatpak `app_id`, started from the host.
+    fn flatpak(app_id: &str) -> McpServer {
+        let args = ["run", "--command=creativecraft-cli", app_id, "mcp"];
+        McpServer { command: "flatpak".into(), args: args.map(String::from).to_vec() }
     }
 }
 
@@ -154,4 +165,16 @@ pub fn start_turn(req: &TurnRequest) -> Result<Running, AgentError> {
 /// `<projects>/.creativecraft/agent`
 pub fn state_dir(projects: &Path) -> PathBuf {
     projects.join(".creativecraft").join("agent")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::McpServer;
+
+    #[test]
+    fn the_flatpak_hub_starts_through_flatpak_run() {
+        let hub = McpServer::flatpak("org.creativecraft.CreativeCraft");
+        assert_eq!(hub.command, "flatpak");
+        assert_eq!(hub.args, ["run", "--command=creativecraft-cli", "org.creativecraft.CreativeCraft", "mcp"]);
+    }
 }

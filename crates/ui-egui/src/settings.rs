@@ -639,7 +639,7 @@ impl CreativeCraftApp {
             ui.label(RichText::new("CreativeCraft as an MCP server").size(14.0).color(t.ink));
             ui.label(RichText::new("The Assistant uses it automatically. To use your apps from another MCP host, add:").size(12.0).color(t.muted));
             ui.add_space(8.0);
-            let config = serde_json::json!({ "mcpServers": { "creativecraft": { "command": self.cli_path, "args": ["mcp"] } } });
+            let config = serde_json::json!({ "mcpServers": { "creativecraft": { "command": self.hub.command, "args": self.hub.args } } });
             let text = serde_json::to_string_pretty(&config).unwrap_or_default();
             egui::Frame::NONE.fill(t.bar).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 ui.set_width(ui.available_width());

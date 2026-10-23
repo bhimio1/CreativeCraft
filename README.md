@@ -87,6 +87,12 @@ shows the exact path and a Copy button):
 { "mcpServers": { "creativecraft": { "command": "/path/to/creativecraft-cli", "args": ["mcp"] } } }
 ```
 
+With the Flatpak, the CLI is inside the sandbox, so start it through `flatpak run`:
+
+```json
+{ "mcpServers": { "creativecraft": { "command": "flatpak", "args": ["run", "--command=creativecraft-cli", "org.creativecraft.CreativeCraft", "mcp"] } } }
+```
+
 ### Set up Google Drive
 
 Drive sync needs a free Google Cloud OAuth client (about ten minutes, once): enable the **Google
