@@ -296,6 +296,12 @@ mod tests {
         assert_eq!(pick_asset(&a, MAC_ARM), Some("MusicCraft-0.1.0-macos-universal.dmg"));
         assert_eq!(pick_asset(&a, WIN), Some("MusicCraft-0.1.0-windows-x64-portable.zip"));
         assert_eq!(pick_cli_asset(&a, MAC_ARM, "MusicCraft-0.1.0-macos-universal.dmg"), None);
+        // releases with the MCP server: still the app first, and on macOS the CLI zip beside it
+        let mut b = a.to_vec();
+        b.push("MusicCraft-cli-0.4.0-macos-universal.zip");
+        assert_eq!(pick_asset(&b, MAC_ARM), Some("MusicCraft-0.1.0-macos-universal.dmg"));
+        assert_eq!(pick_cli_asset(&b, MAC_ARM, "MusicCraft-0.1.0-macos-universal.dmg"), Some("MusicCraft-cli-0.4.0-macos-universal.zip"));
+        assert_eq!(pick_cli_asset(&b, LINUX, "MusicCraft-0.1.0-linux-x86_64-portable.tar.gz"), None);
     }
 
     #[test]
