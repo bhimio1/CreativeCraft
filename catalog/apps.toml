@@ -222,9 +222,10 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/storytold/figcraft"
 opens = ["figcraft", "fig"]
 
-# ───────────────────────── Community apps built like the Craft apps (MIT OR Apache-2.0) ─────────────────────────
+# ───────────────────────── Community apps built like the Craft apps ─────────────────────────
 # Not part of the official Craft family, but built the same way (pure Rust, the same release layout,
-# `<app>-cli mcp`), so the hub installs, updates and drives them like Craft apps.
+# an MCP server in the release), so the hub installs, updates and drives them like Craft apps.
+# Each names its own licence.
 
 [[app]]
 id = "solvecraft"
@@ -249,9 +250,12 @@ summary = "Pattern-based music production: channel rack, piano roll, playlist an
 kind = "release"
 repo = "bhimio1/musiccraft"
 gui = "musiccraft"
-# 0.1.0 ships the desktop app only. When releases add musiccraft-mcp (MCP over stdio, no arguments),
-# add `cli = "musiccraft-mcp"` and `mcp = []` so the assistant can drive it.
-license = "Not yet licensed"
+# The MCP server is its own binary (no `mcp` subcommand). Releases ship it in the Linux and Windows
+# portable archives and, on macOS, as MusicCraft-cli-<version>-macos-universal.zip beside the .dmg.
+cli = "musiccraft-mcp"
+mcp = []
+live = { gui = ["--control", "{port}", "--control-token-file", "{token}"], mcp = ["--connect", "127.0.0.1:{port}", "--control-token-file", "{token}"] }
+license = "GPL-3.0-or-later"
 homepage = "https://github.com/bhimio1/musiccraft"
 opens = ["mcproj"]
 
