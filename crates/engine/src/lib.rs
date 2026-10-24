@@ -99,6 +99,9 @@ pub enum Command {
     /// Look for newer versions without installing anything: one app (`Some(id)`), or every app
     /// the hub installed and CreativeCraft itself.
     CheckUpdates(Option<String>),
+    /// Update CreativeCraft itself to its newest release, the way this copy was installed
+    /// (see `creativecraft_install::HubInstall`). Takes effect when it restarts.
+    UpdateHub,
     SignInGoogle,
     SignOutGoogle,
     /// One-time setup so the chat's agent CLI can reach the hub (Hermes Agent needs it).
@@ -125,6 +128,7 @@ impl Command {
             Command::TestGenerator(_) => "generate.test",
             Command::TrashGenerated(_) => "generate.trash",
             Command::CheckUpdates(_) => "app.check_updates",
+            Command::UpdateHub => "hub.update",
             Command::SignInGoogle => "cloud.google.sign_in",
             Command::SignOutGoogle => "cloud.google.sign_out",
             Command::SetupAgent => "agent.setup",
@@ -307,6 +311,7 @@ impl Session {
             Command::TestGenerator(id) => self.test_generator(&id),
             Command::TrashGenerated(file) => generate::trash_generated(&self.settings.projects_dir, &file),
             Command::CheckUpdates(only) => Ok(self.update_job(only.as_deref())?.run().summary()),
+            Command::UpdateHub => self.update_hub(&mut |p| events(Event::Install(updates::HUB_ID.into(), p))),
             Command::TestCloud => {
                 let mut store = self.cloud_store()?;
                 Ok(sync::test_connection(store.as_mut())?)

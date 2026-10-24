@@ -144,10 +144,12 @@ impl CreativeCraftApp {
                 ui.add(egui::TextEdit::singleline(&mut self.draft.device_name).desired_width(220.0));
             });
             theme::row_divider(ui);
+            self.hub_version_row(ui);
+            theme::row_divider(ui);
             theme::setting_row(
                 ui,
                 "Check for updates at start",
-                "Looks for newer versions of your apps and of CreativeCraft when the window opens. Nothing installs without asking.",
+                "Looks for newer versions of your apps and of CreativeCraft when the window opens, and offers to update CreativeCraft. Nothing installs without asking.",
                 |ui| {
                     if ui.add(theme::secondary("Check now")).clicked() {
                         self.check_updates(None);

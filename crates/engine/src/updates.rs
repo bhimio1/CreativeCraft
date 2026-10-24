@@ -5,8 +5,11 @@
 
 use crate::{EngineError, Session};
 use creativecraft_catalog::{AppSpec, Kind};
-use creativecraft_install::{Installed, Source, UpdateCheck};
+use creativecraft_install::{HubInstall, Installed, Progress, Source, UpdateCheck};
 use serde_json::{Value, json};
+
+/// The id CreativeCraft's own update reports progress under.
+pub const HUB_ID: &str = "creativecraft";
 
 /// The GitHub repository CreativeCraft's releases are published from.
 fn hub_repo() -> Option<String> {
@@ -104,13 +107,30 @@ impl UpdateReport {
         json!({
             "updates": self.updates.iter().map(|u| json!({ "id": u.id, "name": u.name, "installed": u.have, "latest": u.latest })).collect::<Vec<_>>(),
             "up_to_date": self.current,
-            "creativecraft": self.hub.as_ref().map(|(v, url)| json!({ "version": v, "release_page": url })),
+            "creativecraft": self.hub.as_ref().map(|(v, url)| json!({
+                "version": v,
+                "release_page": url,
+                "how_to_update": HubInstall::detect().can_update().err().unwrap_or_else(|| "creativecraft-cli self-update, or Update now in the CreativeCraft window".into()),
+            })),
             "failed": self.failed.iter().map(|(n, w)| json!({ "name": n, "error": w })).collect::<Vec<_>>(),
         })
     }
 }
 
 impl Session {
+    /// Update CreativeCraft itself (`Command::UpdateHub`). The running copy carries on; the new
+    /// one is used after a restart.
+    pub(crate) fn update_hub(&mut self, progress: &mut dyn FnMut(Progress)) -> Result<String, EngineError> {
+        let install = HubInstall::detect();
+        let repo = hub_repo().ok_or_else(|| EngineError::Plugin("CreativeCraft's release page isn't known".into()))?;
+        let version = creativecraft_install::update_hub(&install, &repo, env!("CARGO_PKG_VERSION"), &self.dirs, progress)?;
+        Ok(if install.installs_on_restart() {
+            format!("CreativeCraft {version} is downloaded; it installs when CreativeCraft restarts")
+        } else {
+            format!("CreativeCraft {version} is installed; restart CreativeCraft to use it")
+        })
+    }
+
     /// A check of `only` (an app id) or of every app the hub installed, and of CreativeCraft
     /// itself when checking everything.
     pub fn update_job(&self, only: Option<&str>) -> Result<UpdateJob, EngineError> {
