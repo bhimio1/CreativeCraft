@@ -8,6 +8,8 @@ USAGE
   creativecraft-cli install <app> --release                    …back to the official releases
   creativecraft-cli updates [app] [--json] check for newer versions (releases, forks, git builds,
                                            and CreativeCraft itself) without installing anything
+  creativecraft-cli self-update            update CreativeCraft itself to its newest release (Flatpak,
+                                           portable folder, macOS app or Windows installer)
   creativecraft-cli remove <app>...        uninstall
   creativecraft-cli open <app> [files...]  open an app
   creativecraft-cli sync [--preview|--test] sync the projects folder with cloud storage (or show the

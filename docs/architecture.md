@@ -82,6 +82,15 @@ them inline and prints progress to stderr; the MCP server runs them for the agen
   them like a release. Build output streams to the UI as `Progress::Building` / `Progress::Log`.
   Uninstalling removes the checkout and build cache too.
 
+## Updating CreativeCraft itself
+
+`install::HubInstall::detect()` works out how this copy was installed (Flatpak bundle, portable
+folder, macOS `.app`, Windows `.msi`, or managed by a package manager / Nix / a source build).
+`Command::UpdateHub` (`hub.update`) downloads the matching file from the newest CreativeCraft
+release, checks it against `SHA256SUMS`, and installs it without stopping the running copy;
+`install::restart_hub` starts the new one (for the `.msi`: runs the installer, then starts it) and
+the window closes. See [self-update.md](self-update.md).
+
 ## Sync
 
 Backends (`creativecraft-cloud`): Google Drive, WebDAV, S3 (SigV4 signed here), rclone (an external

@@ -4,6 +4,7 @@
 //! creativecraft-cli list [--json]          every app and its status
 //! creativecraft-cli install <app>…         install or update
 //! creativecraft-cli updates [app] [--json] check for updates (apps and CreativeCraft), install nothing
+//! creativecraft-cli self-update             update CreativeCraft itself to its newest release
 //! creativecraft-cli remove <app>…
 //! creativecraft-cli open <app> [files…]
 //! creativecraft-cli sync                   one cloud sync pass
@@ -243,8 +244,26 @@ fn run(args: &[String]) -> Result<(), EngineError> {
                     out!("Update with: creativecraft-cli install {}", ids.join(" "));
                 }
                 if let Some((_, url)) = &report.hub {
-                    out!("Get the new CreativeCraft: {url}");
+                    match creativecraft_install::HubInstall::detect().can_update() {
+                        Ok(()) => out!("Update CreativeCraft with: creativecraft-cli self-update"),
+                        Err(how) => out!("{how}\nRelease page: {url}"),
+                    }
                 }
+            }
+        }
+        "self-update" => {
+            let install = creativecraft_install::HubInstall::detect();
+            if let Err(how) = install.can_update() {
+                return Err(EngineError::Plugin(how));
+            }
+            let msg = s.execute(Command::UpdateHub, &mut print_progress)?;
+            eprintln!();
+            if install.installs_on_restart() {
+                // the Windows installer: run it now; it opens CreativeCraft when it's done
+                creativecraft_install::restart_hub(&install, &s.dirs)?;
+                out!("Installing the update; CreativeCraft opens when it's done");
+            } else {
+                out!("{msg}");
             }
         }
         "generate" | "gen" => generate(&mut s, rest)?,

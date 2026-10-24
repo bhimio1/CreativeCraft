@@ -19,6 +19,7 @@ mod external;
 mod github;
 mod icons;
 mod registry;
+mod selfupdate;
 mod source;
 mod unpack;
 mod updates;
@@ -28,6 +29,7 @@ pub use external::detect_external;
 pub use github::{Asset, Release, fetch_text, newest_release};
 pub use icons::IconData;
 pub use registry::{Installed, Registry};
+pub use selfupdate::{HubInstall, clean_up_after_update, restart as restart_hub, update_hub};
 pub use source::Source;
 pub use updates::{UpdateCheck, check_update};
 
