@@ -309,6 +309,7 @@ impl CreativeCraftApp {
                 }
                 Msg::Done(label, r) => {
                     self.busy = None;
+                    self.hub_update_done(&label, r.is_ok());
                     if let Ok(text) = &r {
                         self.stock_downloaded(text);
                     }
@@ -437,6 +438,7 @@ impl CreativeCraftApp {
         if self.source_dialog.is_some() {
             self.source_dialog_ui(ui.ctx().clone());
         }
+        self.hub_update_offer(ui.ctx());
         self.splash.show(ui.ctx(), &self.tex);
         #[cfg(debug_assertions)]
         debug_self_screenshot(ui.ctx());
