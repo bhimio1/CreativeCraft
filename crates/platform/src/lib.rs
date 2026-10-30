@@ -326,6 +326,28 @@ mod tests {
     }
 
     /// How every Craft app ships on macOS: the app on a disk image, the CLI as its own zip.
+    /// SolidCraft's release layout (packaging/ at v0.27.1): a plain tarball on Linux, a portable
+    /// zip beside the MSI on Windows, and on macOS the disk image plus the CLI zip.
+    #[test]
+    fn picks_solidcrafts_builds() {
+        let a = [
+            "solidcraft-0.27.1-linux-x86_64.tar.gz",
+            "solidcraft-0.27.1-linux-x86_64.AppImage",
+            "solidcraft-0.27.1-freebsd-x86_64.tar.gz",
+            "solidcraft-0.27.1-macos-universal.dmg",
+            "solidcraft-cli-0.27.1-macos-universal.zip",
+            "solidcraft-0.27.1-windows-x64.msi",
+            "solidcraft-0.27.1-windows-x64-portable.zip",
+            "solidcraft-0.27.1-windows-x86-portable.zip",
+            "solidcraft-web-0.27.1.zip",
+        ];
+        assert_eq!(pick_asset(&a, LINUX), Some("solidcraft-0.27.1-linux-x86_64.tar.gz"));
+        assert_eq!(pick_asset(&a, WIN), Some("solidcraft-0.27.1-windows-x64-portable.zip"));
+        assert_eq!(pick_asset(&a, WIN32), Some("solidcraft-0.27.1-windows-x86-portable.zip"));
+        assert_eq!(pick_asset(&a, MAC_ARM), Some("solidcraft-0.27.1-macos-universal.dmg"));
+        assert_eq!(pick_cli_asset(&a, MAC_ARM, "solidcraft-0.27.1-macos-universal.dmg"), Some("solidcraft-cli-0.27.1-macos-universal.zip"));
+    }
+
     #[test]
     fn picks_musiccrafts_portable_builds() {
         let a = [
