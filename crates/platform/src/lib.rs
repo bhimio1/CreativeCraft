@@ -168,6 +168,15 @@ pub fn score_asset(asset: &str, host: Host) -> Option<i32> {
     if has(&["web", "wasm"]) {
         return None;
     }
+    // nor are plugin bundles (MusicCraft ships MusicCraft-Plugins-<v>-<os>-<arch>.zip with its
+    // CLAP/VST3 effects next to the app); they hold no app executable at all
+    if has(&["plugin", "plugins", "clap", "vst", "vst3", "lv2"]) {
+        return None;
+    }
+    // an archive marked portable is the app itself, so it wins a tie with any other archive
+    if has(&["portable"]) {
+        score += 1;
+    }
     Some(score)
 }
 
@@ -277,6 +286,41 @@ mod tests {
         for _ in 0..2 {
             assert_eq!(pick_asset(&a, LINUX), Some("figcraft-0.5.1-linux-x86_64.tar.gz"));
             assert_eq!(pick_asset(&a, WIN), Some("figcraft-0.5.1-windows-x64-portable.zip"));
+            a.reverse();
+        }
+    }
+
+    /// MusicCraft 0.4.4's real release: the plugin bundle names the same OS and arch as the app's
+    /// portable zip, and used to win the tie on Windows and macOS (installing no `musiccraft.exe`).
+    #[test]
+    fn never_picks_musiccrafts_plugin_bundle() {
+        let mut a = vec![
+            "MusicCraft-0.4.4-linux-x86_64-portable.tar.gz",
+            "MusicCraft-0.4.4-linux-x86_64.flatpak",
+            "MusicCraft-0.4.4-macos-universal.dmg",
+            "MusicCraft-0.4.4-windows-x64-portable.zip",
+            "MusicCraft-0.4.4-windows-x64.msi",
+            "MusicCraft-0.4.4-windows-x64.wixpdb",
+            "MusicCraft-cli-0.4.4-macos-universal.zip",
+            "MusicCraft-Plugins-0.4.4-linux-x86_64.zip",
+            "MusicCraft-Plugins-0.4.4-macos-universal.zip",
+            "MusicCraft-Plugins-0.4.4-windows-x64.zip",
+            "SHA256SUMS.txt",
+        ];
+        for _ in 0..2 {
+            assert_eq!(pick_asset(&a, WIN), Some("MusicCraft-0.4.4-windows-x64-portable.zip"));
+            assert_eq!(pick_asset(&a, MAC_ARM), Some("MusicCraft-0.4.4-macos-universal.dmg"));
+            assert_eq!(pick_asset(&a, LINUX), Some("MusicCraft-0.4.4-linux-x86_64-portable.tar.gz"));
+            assert_eq!(pick_cli_asset(&a, MAC_ARM, "MusicCraft-0.4.4-macos-universal.dmg"), Some("MusicCraft-cli-0.4.4-macos-universal.zip"));
+            a.reverse();
+        }
+    }
+
+    #[test]
+    fn a_portable_archive_wins_a_tie() {
+        let mut a = vec!["app-1.0-windows-x64-portable.zip", "app-extras-1.0-windows-x64.zip"];
+        for _ in 0..2 {
+            assert_eq!(pick_asset(&a, WIN), Some("app-1.0-windows-x64-portable.zip"));
             a.reverse();
         }
     }
