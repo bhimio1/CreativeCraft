@@ -66,7 +66,9 @@ them inline and prints progress to stderr; the MCP server runs them for the agen
 
 1. `GET api.github.com/repos/<owner>/<repo>/releases/latest`.
 2. `platform::pick_asset` scores every asset for this OS/arch and picks the best portable
-   archive (`.tar.gz` / `.zip`; never `.msi`/`.dmg`/`.deb`, which need admin rights).
+   archive (`.tar.gz` / `.zip`, or the `.dmg` on macOS; never `.msi`/`.deb`, which need admin
+   rights). CLI-only and server archives rank lower, an archive marked `portable` wins a tie, and
+   plugin bundles (`*-Plugins-*`, CLAP/VST3/LV2) and web builds are never picked.
 3. Stream to `downloads/<asset>.part`, hashing SHA-256; compare with `<asset>.sha256` or
    `SHA256SUMS` if the release has one.
 4. Unpack into `apps/<id>/.staging-<tag>`, rename to `apps/<id>/<tag>`, find the `gui` and
