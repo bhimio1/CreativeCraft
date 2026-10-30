@@ -239,8 +239,9 @@ impl Installer {
         let gone = self.registry.remove(&app.id).ok_or_else(|| InstallError::NotInstalled(app.name.clone()))?;
         self.registry.save(&self.dirs.registry_file())?;
         let _ = std::fs::remove_dir_all(self.dirs.apps().join(&app.id));
+        // an install carried over from a former id lives in that id's folder
+        let _ = std::fs::remove_dir_all(&gone.dir);
         self.remove_git_caches(&app.id);
-        drop(gone);
         Ok(())
     }
 

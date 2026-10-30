@@ -228,19 +228,21 @@ opens = ["figcraft", "fig"]
 # Each names its own licence.
 
 [[app]]
-id = "solvecraft"
-name = "SolveCraft"
+# Formerly SolveCraft (bherbruck/solvecraft); the hub moves installs made under the old id.
+id = "solidcraft"
+name = "SolidCraft"
 category = "3D CAD"
-summary = "Parametric 3D CAD: constrained sketches, extrude and revolve, fillets, a timeline that rebuilds when a parameter changes, STEP export."
+summary = "Parametric 3D CAD: constrained sketches, extrude and revolve, fillets and shells, a timeline that rebuilds when a parameter changes, STEP export."
 kind = "release"
-repo = "bherbruck/solvecraft"
-gui = "solvecraft"
-cli = "solvecraft-cli"
-mcp = ["mcp"]
-live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}"] }
+repo = "tangency-labs/solidcraft"
+gui = "solidcraft"
+cli = "solidcraft-cli"
+# Plain `mcp` bridges to a running window when it finds one; `--headless` keeps this a session of its own.
+mcp = ["mcp", "--headless", "--allow-path", "{projects}"]
+live = { gui = ["--control", "{port}"], mcp = ["mcp", "--connect", "127.0.0.1:{port}", "--allow-path", "{projects}"] }
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/bherbruck/solvecraft"
-opens = ["solvecraft", "step", "stp", "iges", "igs", "stl", "3mf"]
+homepage = "https://github.com/tangency-labs/solidcraft"
+opens = ["sc", "solidcraft", "solvecraft", "step", "stp", "iges", "igs", "fcstd", "3dm", "stl", "3mf", "obj", "glb", "gltf"]
 
 [[app]]
 id = "musiccraft"
