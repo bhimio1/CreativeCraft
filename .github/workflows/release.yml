@@ -316,7 +316,9 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: CreativeCraft ${{ env.TAG }}
-          prerelease: true
+          # v1.2.3 is a full release marked Latest; anything after the version (v1.2.3-beta.1, v1.0.0-rc1) is a pre-release
+          prerelease: ${{ contains(env.TAG, '-') }}
+          make_latest: ${{ !contains(env.TAG, '-') }}
           generate_release_notes: true
           body: |
             Pre-alpha preview build of CreativeCraft: one home for open-source creative apps, with cloud sync and an AI assistant that drives the apps over MCP.
